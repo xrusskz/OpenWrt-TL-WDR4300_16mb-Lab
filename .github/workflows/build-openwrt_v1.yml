@@ -60,7 +60,7 @@ jobs:
         run: |
           echo "Using WDR4300 DTSI"
 
-          FILE="openwrt/target/linux/ath79/dts/ar9344_tplink_tl-wdr4300.dtsi"
+          FILE="openwrt/target/linux/ath79/dts/ar9344_tplink_tl-wdrxxxx.dtsi"
 
           if [ ! -f "$FILE" ]; then
               echo "::error::Не найден $FILE"
