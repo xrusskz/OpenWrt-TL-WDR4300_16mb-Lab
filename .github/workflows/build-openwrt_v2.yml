@@ -54,48 +54,48 @@ jobs:
           grep -RIn "tplink_tl-wdr4300" \
             openwrt/target/linux/ath79/image || true
 
-####################################################################
-## PATCH IMAGE TYPE: WDR4300 v1 8MB -> 16MB
-####################################################################
-- name: Change WDR4300 v1 image type to 16MB
-  run: |
-    FILE="openwrt/target/linux/ath79/image/generic-tp-link.mk"
+      ####################################################################
+      ## PATCH IMAGE TYPE: WDR4300 v1 8MB -> 16MB
+      ####################################################################
+      - name: Change WDR4300 v1 image type to 16MB
+        run: |
+          FILE="openwrt/target/linux/ath79/image/generic-tp-link.mk"
 
-    echo "Using:"
-    echo "$FILE"
+          echo "Using:"
+          echo "$FILE"
 
-    if [ ! -f "$FILE" ]; then
-        echo "::error::File not found: $FILE"
-        exit 1
-    fi
+          if [ ! -f "$FILE" ]; then
+              echo "::error::File not found: $FILE"
+              exit 1
+          fi
 
-    echo
-    echo "===== BEFORE ====="
-    sed -n '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/p' "$FILE"
+          echo
+          echo "===== BEFORE ====="
+          sed -n '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/p' "$FILE"
 
-    echo
-    echo "===== PATCHING WDR4300 v1 ONLY ====="
+          echo
+          echo "===== PATCHING WDR4300 v1 ONLY ====="
 
-    sed -i \
-      '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/ s#$(Device/tplink-8mlzma)#$(Device/tplink-16mlzma)#' \
-      "$FILE"
+          sed -i \
+            '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/ s#$(Device/tplink-8mlzma)#$(Device/tplink-16mlzma)#' \
+            "$FILE"
 
-    echo
-    echo "===== AFTER ====="
-    sed -n '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/p' "$FILE"
+          echo
+          echo "===== AFTER ====="
+          sed -n '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/p' "$FILE"
 
-    echo
-    echo "===== VERIFY ====="
+          echo
+          echo "===== VERIFY ====="
 
-    grep -A10 \
-      '^define Device/tplink_tl-wdr4300-vl$' \
-      "$FILE" | grep -q '$(Device/tplink-16mlzma)' || {
-        echo "::error::WDR4300 v1 не переведён на 16mlzma"
-        exit 1
-    }
+          grep -A10 \
+            '^define Device/tplink_tl-wdr4300-vl$' \
+            "$FILE" | grep -q '$(Device/tplink-16mlzma)' || {
+             echo "::error::WDR4300 v1 не переведён на 16mlzma"
+              exit 1
+          }
 
-    echo
-    echo "===== WDR4300 v1 16MB IMAGE TYPE PATCH SUCCESS ====="
+          echo
+          echo "===== WDR4300 v1 16MB IMAGE TYPE PATCH SUCCESS ====="
       ####################################################################
       ## PATCH FLASH LAYOUT
       ####################################################################
