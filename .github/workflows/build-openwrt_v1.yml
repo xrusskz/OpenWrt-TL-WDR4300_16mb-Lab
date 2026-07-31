@@ -43,6 +43,8 @@ jobs:
             -o -iname "*wdr3600*" \
             -o -iname "*wdrxxxx*" \
             \)
+          echo "===== Search firmware layout ====="
+          grep -RIn "7d0000" openwrt/target/linux/ath79/dts || true
           echo
           echo "===== Search old ART partition ====="
           grep -RIn "partition@7f0000" \
@@ -56,24 +58,15 @@ jobs:
       ####################################################################
       - name: Patch flash layout to 16MB
         run: |
-          echo "Searching correct DTS/DTSI..."
-          FILE=""
-          for F in \
-            openwrt/target/linux/ath79/dts/ar9344_tplink_tl-wdr4300.dtsi \
-            openwrt/target/linux/ath79/dts/ar9344_tplink_tl-wdr4300-v1.dts
-          do
-              if [ -f "$F" ] && grep -q "0x020000 0x7d0000" "$F"; then
-                  FILE="$F"
-                  break
-              fi
-          done
-          
-          if [ -z "$FILE" ]; then
-              echo "::error::Не найден DTS/DTSI WDR4300 с разметкой 8MB"
+          echo "Using WDR4300 DTSI"
+
+          FILE="openwrt/target/linux/ath79/dts/ar9344_tplink_tl-wdr4300.dtsi"
+
+          if [ ! -f "$FILE" ]; then
+              echo "::error::Не найден $FILE"
               exit 1
           fi
-          
-          echo
+
           echo "Используется:"
           echo "$FILE"
           echo
