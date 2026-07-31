@@ -54,9 +54,9 @@ jobs:
           grep -RIn "tplink_tl-wdr4300" \
             openwrt/target/linux/ath79/image || true
 
-      ####################################################################
-      ## PATCH IMAGE TYPE: WDR4300 v1 8MB -> 16MB
-      ####################################################################
+      #####################################################################
+      ## PATCH IMAGE TYPE: 8MB -> 16MB
+      #####################################################################
       - name: Change WDR4300 v1 image type to 16MB
         shell: bash
         run: |
@@ -71,37 +71,84 @@ jobs:
           fi
 
           echo
-          echo "===== BEFORE ====="
+          echo "===== SEARCH WDR4300 PROFILES ====="
 
-          grep -n -A10 -B2 \
-            "define Device/tplink_tl-wdr4300-vl" \
-            "$FILE" || {
-              echo "::error::WDR4300 v1 profile not found"
-              exit 1
-            }
+          grep -n -A10 -B2 "wdr4300" "$FILE" || {
+            echo "::error::No WDR4300 profiles found"
+            exit 1
+          }
 
           echo
           echo "===== PATCHING WDR4300 v1 ONLY ====="
 
-          sed -i \
-            '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/ s/\$(Device\/tplink-8mlzma)/\$(Device\/tplink-16mlzma)/' \
-            "$FILE"
+          python3 - "$FILE" <<'PY'
+          import sys
+          from pathlib import Path
+
+          file = Path(sys.argv[1])
+          text = file.read_text()
+
+          start_marker = "define Device/tplink_tl-wdr4300-vl"
+          end_marker = "endef"
+
+          start = text.find(start_marker)
+
+          if start == -1:
+              print("ERROR: WDR4300 v1 profile not found")
+              sys.exit(1)
+
+          end = text.find(end_marker, start)
+
+          if end == -1:
+              print("ERROR: endef not found")
+              sys.exit(1)
+
+          end += len(end_marker)
+
+          block = text[start:end]
+
+          print("===== FOUND BLOCK =====")
+          print(block)
+
+          if "$(Device/tplink-8mlzma)" not in block:
+              if "$(Device/tplink-16mlzma)" in block:
+                  print("WDR4300 v1 is already using 16mlzma")
+                  sys.exit(0)
+
+              print("ERROR: 8mlzma not found in WDR4300 v1 block")
+              sys.exit(1)
+
+          block_new = block.replace(
+              "$(Device/tplink-8mlzma)",
+              "$(Device/tplink-16mlzma)",
+              1
+          )
+
+          text = text[:start] + block_new + text[end:]
+
+          file.write_text(text)
+
+          print("===== PATCHED BLOCK =====")
+          print(block_new)
+          PY
 
           echo
-          echo "===== AFTER ====="
+          echo "===== VERIFY WDR4300 v1 ====="
 
           grep -n -A10 -B2 \
             "define Device/tplink_tl-wdr4300-vl" \
             "$FILE"
 
           echo
-          echo "===== VERIFY ====="
+          echo "===== VERIFY 16MB ====="
 
-          if grep -A10 \
-            "define Device/tplink_tl-wdr4300-vl$" \
-            "$FILE" | grep -q '\$(Device/tplink-16mlzma)'; then
+          if sed -n \
+            '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/p' \
+            "$FILE" | grep -q '$(Device/tplink-16mlzma)'; then
 
-            echo "WDR4300 v1 successfully changed to 16mlzma"
+            echo "========================================"
+            echo "WDR4300 v1 -> 16mlzma SUCCESS"
+            echo "========================================"
 
           else
 
@@ -109,9 +156,6 @@ jobs:
             exit 1
 
           fi
-
-          echo
-          echo "===== 16MB IMAGE TYPE PATCH SUCCESS ====="
       ####################################################################
       ## PATCH FLASH LAYOUT
       ####################################################################
