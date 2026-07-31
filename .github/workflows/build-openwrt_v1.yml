@@ -152,7 +152,7 @@ jobs:
           echo
           echo "===== Patching IMAGE_SIZE limit ====="
 
-          grep -Rl "tplink_tl-wdr4300" openwrt/target/linux/ath79/image
+          grep -Rl "tplink_tl-wdr4300" openwrt/target/linuxMKFILE=$(grep -Rl "tplink_tl-wdr4300" openwrt/target/linux/ath79/image | head -n1 || true)/ath79/image
 
           if [ -n "$MKFILE" ]; then
               echo "Found Makefile: $MKFILE"
@@ -225,10 +225,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: openwrt/dl
+          key: openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-dl
           restore-keys: |
             openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-
             openwrt-25.12.5-ath79-
-
       - name: Cache ccache
         uses: actions/cache@v4
         with:
@@ -236,7 +236,6 @@ jobs:
           key: openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-ccache
           restore-keys: |
             openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-ccache
-
       ####################################################################
       ## FEEDS
       ####################################################################
