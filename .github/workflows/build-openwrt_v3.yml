@@ -155,7 +155,19 @@ jobs:
               echo "::error::ART offset not patched"
               exit 1
           }
+          
+          echo
+          echo "===== IMAGE SETTINGS ====="
 
+          grep -RInE \
+          "tplink_tl-wdr4300|IMAGE_SIZE|KERNEL_SIZE|TPLINK_FLASHLAYOUT" \
+          openwrt/target/linux/ath79/image || true
+
+          echo
+          echo "===== PATCH DIFF ====="
+
+          git -C openwrt diff -- "${FILE#openwrt/}" || true
+          
       - name: Detect device profile name
         run: |
 
