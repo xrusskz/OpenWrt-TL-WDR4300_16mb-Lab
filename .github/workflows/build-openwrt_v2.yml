@@ -58,15 +58,16 @@ jobs:
       ## PATCH IMAGE TYPE: WDR4300 v1 8MB -> 16MB
       ####################################################################
       - name: Change WDR4300 v1 image type to 16MB
+        shell: bash
         run: |
           FILE="openwrt/target/linux/ath79/image/generic-tp-link.mk"
 
           echo "Using:"
           echo "$FILE"
 
-         if [ ! -f "$FILE" ]; then
-              echo "::error::File not found: $FILE"
-              exit 1
+          if [ ! -f "$FILE" ]; then
+            echo "::error::File not found: $FILE"
+            exit 1
           fi
 
           echo
@@ -75,9 +76,9 @@ jobs:
           grep -n -A10 -B2 \
             "define Device/tplink_tl-wdr4300-vl" \
             "$FILE" || {
-              echo "::error::Не найден профиль WDR4300 v1"
+              echo "::error::WDR4300 v1 profile not found"
               exit 1
-          }
+            }
 
           echo
           echo "===== PATCHING WDR4300 v1 ONLY ====="
@@ -100,11 +101,13 @@ jobs:
             "define Device/tplink_tl-wdr4300-vl$" \
             "$FILE" | grep -q '\$(Device/tplink-16mlzma)'; then
 
-              echo "WDR4300 v1 успешно переведён на 16mlzma"
+            echo "WDR4300 v1 successfully changed to 16mlzma"
 
           else
-              echo "::error::WDR4300 v1 не переведён на 16mlzma"
-              exit 1
+
+            echo "::error::WDR4300 v1 was not changed to 16mlzma"
+            exit 1
+
           fi
 
           echo
