@@ -72,7 +72,7 @@ jobs:
       # --- Патч разметки флеша: firmware-раздел увеличивается на 8 МБ (0x800000),
       # art-раздел сдвигается в конец. Правим общий для wdr3600/4300 dtsi-файл.
       - name: Patch flash partition layout to 16M
-          run: |
+        run: |
             set -e
             echo "========== Поиск файлов WDR =========="
             find openwrt/target/linux/ath79/dts \
