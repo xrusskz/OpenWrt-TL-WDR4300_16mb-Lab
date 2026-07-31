@@ -145,6 +145,36 @@ jobs:
             "partition@ff0000|0xfd0000|0xff0000" \
             "$FILE"
 
+          ################################################################
+          ## ВОТ СЮДА — патч IMAGE_SIZE в .mk файле образа
+          ################################################################
+
+          echo
+          echo "===== Patching IMAGE_SIZE limit ====="
+
+          MKFILE=$(grep -Rl "tplink_tl-wdr4300" openwrt/target/linux/ath79/image | head -1)
+
+          if [ -n "$MKFILE" ]; then
+              echo "Found Makefile: $MKFILE"
+
+              echo "--- BEFORE ---"
+              grep -n "IMAGE_SIZE" "$MKFILE" | grep -E "4300|7808|8000" || true
+
+              # Патчим 7808k → 16128k (16 МБ минус bootloader + ART)
+              sed -i 's/IMAGE_SIZE := 7808k/IMAGE_SIZE := 16128k/' "$MKFILE"
+
+              echo "--- AFTER ---"
+              grep -n "IMAGE_SIZE" "$MKFILE" | grep -E "4300|16128" || true
+
+              # Проверка
+              grep -q "IMAGE_SIZE := 16128k" "$MKFILE" || {
+                  echo "::warning::IMAGE_SIZE не пропатчился — возможно, значение другое, проверьте вручную"
+              }
+          else
+              echo "::warning::Не найден .mk файл с WDR4300, IMAGE_SIZE не пропатчен"
+          fi          
+
+
       - name: Detect device profile name
         run: |
 
