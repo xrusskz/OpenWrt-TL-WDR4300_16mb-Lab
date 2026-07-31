@@ -1,10 +1,10 @@
-name: OpenWrt_25.12.05 TL-WDR4300v2_16mb 
+name: OpenWrt_25.12.05 TL-WDR4300v1_16mb
 
 on:
   workflow_dispatch:
     inputs:
       hw_version:
-        description: '(v2)'
+        description: '(v1)'
         required: false
         default: ''
 
@@ -141,9 +141,50 @@ jobs:
           echo
           echo "===== AFTER ====="
 
-          grep -nE \
-            "partition@ff0000|0xfd0000|0xff0000" \
-            "$FILE"
+          grep -q "0xfd0000" "$FILE" || {
+              echo "::error::firmware partition not patched"
+              exit 1
+          }
+
+          grep -q "partition@ff0000" "$FILE" || {
+              echo "::error::ART partition name not patched"
+              exit 1
+          }
+
+          grep -q "0xff0000" "$FILE" || {
+              echo "::error::ART offset not patched"
+              exit 1
+          }
+          
+         ################################################################
+          ## ВОТ СЮДА — патч IMAGE_SIZE в .mk файле образа
+          ################################################################
+
+          echo
+          echo "===== Patching IMAGE_SIZE limit ====="
+
+          MKFILE=$(grep -Rl "tplink_tl-wdr4300" openwrt/target/linux/ath79/image | head -1)
+
+          if [ -n "$MKFILE" ]; then
+              echo "Found Makefile: $MKFILE"
+
+              echo "--- BEFORE ---"
+              grep -n "IMAGE_SIZE" "$MKFILE" | grep -E "4300|7808|8000" || true
+
+              # Патчим 7808k → 16128k (16 МБ минус bootloader + ART)
+              sed -i 's/IMAGE_SIZE := 7808k/IMAGE_SIZE := 16128k/' "$MKFILE"
+
+              echo "--- AFTER ---"
+              grep -n "IMAGE_SIZE" "$MKFILE" | grep -E "4300|16128" || true
+
+              # Проверка
+              grep -q "IMAGE_SIZE := 16128k" "$MKFILE" || {
+                  echo "::warning::IMAGE_SIZE не пропатчился — возможно, значение другое, проверьте вручную"
+              }
+          else
+              echo "::warning::Не найден .mk файл с WDR4300, IMAGE_SIZE не пропатчен"
+          fi          
+
       - name: Detect device profile name
         run: |
 
@@ -188,7 +229,6 @@ jobs:
       ####################################################################
       ## CACHE
       ####################################################################
-
       - name: Cache dl
         uses: actions/cache@v4
         with:
@@ -223,21 +263,18 @@ jobs:
       - name: Configure build
         working-directory: openwrt
         run: |
-
           test -n "$DEVICE_PROFILE" || {
-              echo "::error::DEVICE_PROFILE пуст"
-              exit 1
+            echo "::error::DEVICE_PROFILE пуст"
+            exit 1
           }
 
-          cat > .config <<EOF
-          CONFIG_TARGET_ath79=y
-          CONFIG_TARGET_ath79_generic=y
-          CONFIG_TARGET_ath79_generic_DEVICE_${DEVICE_PROFILE}=y
-          CONFIG_DEVEL=y
-          CONFIG_CCACHE=y
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_uhttpd=y
-          EOF
+          echo "CONFIG_TARGET_ath79=y" > .config
+          echo "CONFIG_TARGET_ath79_generic=y" >> .config
+          echo "CONFIG_TARGET_ath79_generic_DEVICE_${DEVICE_PROFILE}=y" >> .config
+          echo "CONFIG_DEVEL=y" >> .config
+          echo "CONFIG_CCACHE=y" >> .config
+          echo "CONFIG_PACKAGE_luci=y" >> .config
+          echo "CONFIG_PACKAGE_uhttpd=y" >> .config
 
           make defconfig
 
@@ -248,7 +285,6 @@ jobs:
           grep "^CONFIG_TARGET_SUBTARGET=" .config || true
           grep "^CONFIG_TARGET_PROFILE=" .config || true
           grep "^CONFIG_TARGET_MULTI_PROFILE=" .config || true
-
           grep "^CONFIG_TARGET_ath79_generic_DEVICE_" .config || true
 
           echo
@@ -263,9 +299,7 @@ jobs:
           grep "^CONFIG_CCACHE=y" .config || true
 
           grep -q "CONFIG_TARGET_ath79_generic_DEVICE_${DEVICE_PROFILE}=y" .config || {
-
               echo "::error::Профиль устройства исчез после defconfig"
-
               exit 1
           }
 
@@ -282,13 +316,9 @@ jobs:
           BAD=$(find dl -type f -size -1024c)
 
           if [ -n "$BAD" ]; then
-
               echo "::error::Обнаружены поврежденные архивы"
-
               echo "$BAD"
-
               exit 1
-
           fi
 
       ####################################################################
@@ -301,40 +331,47 @@ jobs:
           CCACHE_DIR: /home/runner/.ccache
         run: |
 
-          make -j"$(nproc)" V=sc || make -j1 V=sc
+          make -j"$(nproc)" V=s || make -j1 V=s
 
       - name: Show ccache statistics
         env:
           CCACHE_DIR: /home/runner/.ccache
         run: |
 
-          ccache -s || true    
+          ccache -s || true
+
       ####################################################################
       ## VERIFY DTB
       ####################################################################
 
       - name: Verify patched layout
         run: |
+
           echo "===== Searching WDR4300 DTB ====="
+
           DTB=$(
-          find openwrt/build_dir openwrt/bin \
+            find openwrt/build_dir openwrt/bin \
               -type f \
               \( -iname "*.dtb" -o -iname "*.dtb.o" \) \
               2>/dev/null \
-          | grep -i "$DEVICE_PROFILE" \
-          | head -n1
+            | grep -i "$DEVICE_PROFILE" \
+            | head -n1
           )
+
           if [ -z "$DTB" ]; then
+
               DTB=$(
-              find openwrt/build_dir openwrt/bin \
+                find openwrt/build_dir openwrt/bin \
                   -type f \
                   \( -iname "*.dtb" -o -iname "*.dtb.o" \) \
                   2>/dev/null \
-              | grep -i "tplink" \
-              | grep -i "4300" \
-              | head -n1
+                | grep -i "tplink" \
+                | grep -i "4300" \
+                | head -n1
               )
+
           fi
+
           if [ -n "$DTB" ]; then
 
               echo "Found:"
@@ -352,19 +389,13 @@ jobs:
               grep -A4 -B1 "partition@" "$DTS"
 
               grep -q "0xfd0000" "$DTS" || {
-
                   echo "::error::Firmware partition was not patched."
-
                   exit 1
-
               }
 
               grep -q "0xff0000" "$DTS" || {
-
                   echo "::error::ART partition was not patched."
-
                   exit 1
-
               }
 
           else
@@ -437,8 +468,7 @@ jobs:
 
           cp openwrt/feeds.conf.default out/
 
-          sha256sum out/* \
-            > out/sha256sums.txt
+          find out -type f -exec sha256sum {} + > out/sha256sums.txt
 
           echo
 
@@ -459,4 +489,4 @@ jobs:
 
           path: out/
 
-          retention-days: 14         
+          retention-days: 14
