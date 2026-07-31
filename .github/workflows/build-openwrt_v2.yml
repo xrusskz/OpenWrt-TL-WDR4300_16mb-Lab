@@ -1,10 +1,10 @@
-name: OpenWrt_25.12.05 TL-WDR4300v1_16mb
+name: OpenWrt_25.12.05 TL-WDR4300v2_16mb
 
 on:
   workflow_dispatch:
     inputs:
       hw_version:
-        description: '(v1)'
+        description: '(v2)'
         required: false
         default: ''
 
