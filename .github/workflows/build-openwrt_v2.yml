@@ -61,20 +61,11 @@ jobs:
         run: |
           FILE="openwrt/target/linux/ath79/image/generic-tp-link.mk"
 
-          echo "Using:"
-          echo "$FILE"
-
-          if [ ! -f "$FILE" ]; then
-              echo "::error::File not found: $FILE"
-              exit 1
-          fi
-
-          echo
           echo "===== BEFORE ====="
-          sed -n '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/p' "$FILE"
+          grep -n -A10 -B2 "define Device/tplink_tl-wdr4300-vl" "$FILE"
 
           echo
-          echo "===== PATCHING WDR4300 v1 ONLY ====="
+          echo "===== PATCHING ====="
 
           sed -i \
             '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/ s#$(Device/tplink-8mlzma)#$(Device/tplink-16mlzma)#' \
@@ -82,20 +73,20 @@ jobs:
 
           echo
           echo "===== AFTER ====="
-          sed -n '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/p' "$FILE"
+          grep -n -A10 -B2 "define Device/tplink_tl-wdr4300-vl" "$FILE"
 
           echo
           echo "===== VERIFY ====="
 
           grep -A10 \
             '^define Device/tplink_tl-wdr4300-vl$' \
-            "$FILE" | grep -q '$(Device/tplink-16mlzma)' || {
-             echo "::error::WDR4300 v1 не переведён на 16mlzma"
+            "$FILE" | grep -Fq '$(Device/tplink-16mlzma)' || {
+              echo "::error::WDR4300 v1 не переведён на 16mlzma"
               exit 1
           }
 
-          echo
-          echo "===== WDR4300 v1 16MB IMAGE TYPE PATCH SUCCESS ====="
+          echo "===== SUCCESS ====="
+          echo "WDR4300 v1 теперь использует tplink-16mlzma"
       ####################################################################
       ## PATCH FLASH LAYOUT
       ####################################################################
