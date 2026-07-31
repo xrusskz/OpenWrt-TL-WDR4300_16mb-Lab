@@ -1,4 +1,4 @@
-name: OpenWrt_25.12.05 TL-WDR4300v2_16mb
+name: OpenWrt_25.12.05 TL-WDR4300v1_16mb
 
 on:
   workflow_dispatch:
