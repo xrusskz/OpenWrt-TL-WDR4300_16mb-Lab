@@ -1,4 +1,4 @@
-name: Build OpenWrt 16M for TL-WDR4300 v1
+name: Build OpenWrt 16M for TL-WDR4300
 
 # Запускается вручную кнопкой "Run workflow" во вкладке Actions вашего репозитория
 on:
@@ -72,72 +72,72 @@ jobs:
       # --- Патч разметки флеша: firmware-раздел увеличивается на 8 МБ (0x800000),
       # art-раздел сдвигается в конец. Правим общий для wdr3600/4300 dtsi-файл.
       - name: Patch flash partition layout to 16M
-  run: |
-    set -e
-    echo "========== Поиск файлов WDR =========="
-    find openwrt/target/linux/ath79/dts \
-      \( -iname "*wdr4300*" -o -iname "*wdr3600*" -o -iname "*wdrxxxx*" \) \
-      | sort || true
-    echo ""
-    echo "========== Поиск DTS по compatible =========="
-    DTS=$(grep -RIlE 'compatible *=.*(tl-wdr4300|tl-wdr3600)' \
-          openwrt/target/linux/ath79/dts || true)
-    if [ -z "$DTS" ]; then
-        echo "::error::Не найден DTS для TL-WDR4300/TL-WDR3600"
-        exit 1
-    fi
-    echo "$DTS"
-    DTS=$(echo "$DTS" | head -n1)
-    echo ""
-    echo "Используется DTS:"
-    echo "$DTS"
-    echo ""
-    echo "========== include =========="
-    INC=$(grep '^#include' "$DTS" \
-          | sed -n 's/^#include "\(.*\)"/\1/p' \
-          | head -n1)
-    if [ -n "$INC" ] && [ -f "openwrt/target/linux/ath79/dts/$INC" ]; then
-        FILE="openwrt/target/linux/ath79/dts/$INC"
-        echo "Будет патчиться общий DTSI:"
-        echo "$FILE"
-    else
-        FILE="$DTS"
-        echo "Патчим сам DTS:"
-        echo "$FILE"
-    fi
-    echo ""
-    echo "========== Проверяем разметку =========="
-    grep -nE 'partition@|reg =' "$FILE"
-    grep -q 'reg = <0x020000 0x7d0000>;' "$FILE" || {
-        echo "::error::Не найден firmware 0x7d0000"
-        exit 1
-    }
-    grep -q 'partition@7f0000' "$FILE" || {
-        echo "::error::Не найден ART"
-        exit 1
-    }
-    echo ""
-    echo "========== Патчим =========="
-    sed -i \
-      's/reg = <0x020000 0x7d0000>;/reg = <0x020000 0xfd0000>;/' \
-      "$FILE"
-    sed -i \
-      's/partition@7f0000/partition@ff0000/' \
-      "$FILE"
-    sed -i \
-      's/reg = <0x7f0000 0x010000>;/reg = <0xff0000 0x010000>;/' \
-      "$FILE"
-    echo ""
-    echo "========== Проверяем =========="
-    grep -q '0xfd0000' "$FILE"
-    grep -q 'partition@ff0000' "$FILE"
-    grep -q '0xff0000 0x010000' "$FILE"
-    echo "OK"
-    echo ""
-    echo "========== git diff =========="
-    git -C openwrt diff --stat -- "${FILE#openwrt/}"
-    git -C openwrt diff -- "${FILE#openwrt/}"
-    echo "================================="
+          run: |
+            set -e
+            echo "========== Поиск файлов WDR =========="
+            find openwrt/target/linux/ath79/dts \
+              \( -iname "*wdr4300*" -o -iname "*wdr3600*" -o -iname "*wdrxxxx*" \) \
+              | sort || true
+            echo ""
+            echo "========== Поиск DTS по compatible =========="
+            DTS=$(grep -RIlE 'compatible *=.*(tl-wdr4300|tl-wdr3600)' \
+                  openwrt/target/linux/ath79/dts || true)
+            if [ -z "$DTS" ]; then
+                echo "::error::Не найден DTS для TL-WDR4300/TL-WDR3600"
+                exit 1
+            fi
+            echo "$DTS"
+            DTS=$(echo "$DTS" | head -n1)
+            echo ""
+            echo "Используется DTS:"
+            echo "$DTS"
+            echo ""
+            echo "========== include =========="
+            INC=$(grep '^#include' "$DTS" \
+                  | sed -n 's/^#include "\(.*\)"/\1/p' \
+                  | head -n1)
+            if [ -n "$INC" ] && [ -f "openwrt/target/linux/ath79/dts/$INC" ]; then
+                FILE="openwrt/target/linux/ath79/dts/$INC"
+                echo "Будет патчиться общий DTSI:"
+                echo "$FILE"
+            else
+                FILE="$DTS"
+                echo "Патчим сам DTS:"
+                echo "$FILE"
+            fi
+            echo ""
+            echo "========== Проверяем разметку =========="
+            grep -nE 'partition@|reg =' "$FILE"
+            grep -q 'reg = <0x020000 0x7d0000>;' "$FILE" || {
+                echo "::error::Не найден firmware 0x7d0000"
+                exit 1
+            }
+            grep -q 'partition@7f0000' "$FILE" || {
+                echo "::error::Не найден ART"
+                exit 1
+            }
+            echo ""
+            echo "========== Патчим =========="
+            sed -i \
+              's/reg = <0x020000 0x7d0000>;/reg = <0x020000 0xfd0000>;/' \
+              "$FILE"
+            sed -i \
+              's/partition@7f0000/partition@ff0000/' \
+              "$FILE"
+            sed -i \
+              's/reg = <0x7f0000 0x010000>;/reg = <0xff0000 0x010000>;/' \
+              "$FILE"
+            echo ""
+            echo "========== Проверяем =========="
+            grep -q '0xfd0000' "$FILE"
+            grep -q 'partition@ff0000' "$FILE"
+            grep -q '0xff0000 0x010000' "$FILE"
+            echo "OK"
+            echo ""
+            echo "========== git diff =========="
+            git -C openwrt diff --stat -- "${FILE#openwrt/}"
+            git -C openwrt diff -- "${FILE#openwrt/}"
+            echo "================================="
 
       - name: Detect device profile name
         run: |
