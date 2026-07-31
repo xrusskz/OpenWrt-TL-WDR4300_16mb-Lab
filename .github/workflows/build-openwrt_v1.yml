@@ -1,4 +1,4 @@
-name: OpenWrt_25.12.05 TL-WDR4300v1_16mb
+name: OpenWrt_25.12.05 TL-WDR4300v1.2_16mb
 on:
   workflow_dispatch:
     inputs:
@@ -67,54 +67,87 @@ jobs:
               exit 1
           fi
 
-          echo "Используется:"
-          echo "$FILE"
           echo
-          echo "===== BEFORE ====="
-          grep -nE \
-            "partition@7f0000|0x020000|0x7f0000" \
+          echo "===== FILE CONTENT ====="
+          sed -n '1,220p' "$FILE"
+
+          echo
+          echo "===== SEARCH PARTITIONS ====="
+          grep -nE "partition|firmware|art|0x020000|0x7d0000|0x7f0000" "$FILE" || true
+
+          echo
+          echo "===== PATCHING ====="
+
+          sed -i -E \
+            's/0x020000[[:space:]]+0x7d0000/0x020000 0xfd0000/' \
             "$FILE"
-          grep -q "0x020000 0x7d0000" "$FILE" \
-            || {
-                echo "::error::Исходная разметка неожиданная."
-                exit 1
-            }
-          sed -i \
-            's/reg = <0x020000 0x7d0000>;/reg = <0x020000 0xfd0000>;/' \
-            "$FILE"
+
           sed -i \
             's/partition@7f0000/partition@ff0000/' \
             "$FILE"
-          sed -i \
-            's/reg = <0x7f0000 0x010000>;/reg = <0xff0000 0x010000>;/' \
+
+          sed -i -E \
+            's/0x7f0000[[:space:]]+0x010000/0xff0000 0x010000/' \
             "$FILE"
+
           echo
-          echo "===== AFTER ====="
-          grep -nE \
-            "partition@ff0000|0xfd0000|0xff0000" \
-            "$FILE"
+          echo "===== AFTER PATCH ====="
+          grep -nE "partition|firmware|art|0xfd0000|0xff0000" "$FILE" || true
+
+          echo
+          echo "===== VERIFY PATCH ====="
+
+          grep -q "0x020000 0xfd0000" "$FILE" || {
+              echo "::error::Firmware partition не изменён"
+              exit 1
+          }
+
+          grep -q "partition@ff0000" "$FILE" || {
+              echo "::error::ART partition не перемещён"
+              exit 1
+          }
+
+          grep -q "0xff0000 0x010000" "$FILE" || {
+              echo "::error::ART offset не изменён"
+              exit 1
+          }
+
+          echo
+          echo "===== PATCH SUCCESS ====="
+
           ################################################################
-          ## ВОТ СЮДА — патч IMAGE_SIZE в .mk файле образа
+          ## PATCH IMAGE_SIZE
           ################################################################
+
           echo
           echo "===== Patching IMAGE_SIZE limit ====="
-          MKFILE=$(grep -Rl "tplink_tl-wdr4300" openwrt/target/linux/ath79/image | head -n1 || true)
+
+          MKFILE=$(grep -Rl "tplink_tl-wdr4300" \
+            openwrt/target/linux/ath79/image \
+            | head -n1 || true)
+
           if [ -n "$MKFILE" ]; then
               echo "Found Makefile: $MKFILE"
+
               echo "--- BEFORE ---"
-              grep -n "IMAGE_SIZE" "$MKFILE" | grep -E "4300|7808|8000" || true
-              # Патчим 7808k → 16128k (16 МБ минус bootloader + ART)
+              grep -n "IMAGE_SIZE" "$MKFILE" || true
+
               sed -i -E \
-              's/IMAGE_SIZE[[:space:]]*:?=[[:space:]]*[0-9]+k/IMAGE_SIZE := 16128k/' \
-              "$MKFILE"
+                's/(IMAGE_SIZE[[:space:]]*:?=[[:space:]]*)[0-9]+k/\116128k/' \
+                "$MKFILE"
+
               echo "--- AFTER ---"
-              grep -n "IMAGE_SIZE" "$MKFILE" | grep -E "4300|16128" || true
-              # Проверка
-              grep -q "IMAGE_SIZE := 16128k" "$MKFILE" || {
-                  echo "::warning::IMAGE_SIZE не пропатчился — возможно, значение другое, проверьте вручную"
+              grep -n "IMAGE_SIZE" "$MKFILE" || true
+
+              grep -q "16128k" "$MKFILE" || {
+                  echo "::error::IMAGE_SIZE не установлен в 16128k"
+                  exit 1
               }
+
+              echo "===== IMAGE_SIZE PATCH SUCCESS ====="
           else
-              echo "::warning::Не найден .mk файл с WDR4300, IMAGE_SIZE не пропатчен"
+              echo "::error::Не найден image Makefile для WDR4300"
+              exit 1
           fi          
       - name: Detect device profile name
         run: |
