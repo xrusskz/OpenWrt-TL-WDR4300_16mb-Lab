@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       hw_version:
-        description: '(v2)'
+        description: '(v1)'
         required: false
         default: ''
 
