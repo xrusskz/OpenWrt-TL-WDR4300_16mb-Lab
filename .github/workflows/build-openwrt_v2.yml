@@ -61,32 +61,54 @@ jobs:
         run: |
           FILE="openwrt/target/linux/ath79/image/generic-tp-link.mk"
 
-          echo "===== BEFORE ====="
-          grep -n -A10 -B2 "define Device/tplink_tl-wdr4300-vl" "$FILE"
+          echo "Using:"
+          echo "$FILE"
+
+         if [ ! -f "$FILE" ]; then
+              echo "::error::File not found: $FILE"
+              exit 1
+          fi
 
           echo
-          echo "===== PATCHING ====="
+          echo "===== BEFORE ====="
+
+          grep -n -A10 -B2 \
+            "define Device/tplink_tl-wdr4300-vl" \
+            "$FILE" || {
+              echo "::error::Не найден профиль WDR4300 v1"
+              exit 1
+          }
+
+          echo
+          echo "===== PATCHING WDR4300 v1 ONLY ====="
 
           sed -i \
-            '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/ s#$(Device/tplink-8mlzma)#$(Device/tplink-16mlzma)#' \
+            '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/ s/\$(Device\/tplink-8mlzma)/\$(Device\/tplink-16mlzma)/' \
             "$FILE"
 
           echo
           echo "===== AFTER ====="
-          grep -n -A10 -B2 "define Device/tplink_tl-wdr4300-vl" "$FILE"
+
+          grep -n -A10 -B2 \
+            "define Device/tplink_tl-wdr4300-vl" \
+            "$FILE"
 
           echo
           echo "===== VERIFY ====="
 
-          grep -A10 \
-            '^define Device/tplink_tl-wdr4300-vl$' \
-            "$FILE" | grep -Fq '$(Device/tplink-16mlzma)' || {
+          if grep -A10 \
+            "define Device/tplink_tl-wdr4300-vl$" \
+            "$FILE" | grep -q '\$(Device/tplink-16mlzma)'; then
+
+              echo "WDR4300 v1 успешно переведён на 16mlzma"
+
+          else
               echo "::error::WDR4300 v1 не переведён на 16mlzma"
               exit 1
-          }
+          fi
 
-          echo "===== SUCCESS ====="
-          echo "WDR4300 v1 теперь использует tplink-16mlzma"
+          echo
+          echo "===== 16MB IMAGE TYPE PATCH SUCCESS ====="
       ####################################################################
       ## PATCH FLASH LAYOUT
       ####################################################################
