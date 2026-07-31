@@ -75,7 +75,7 @@ jobs:
         run: |
           # сначала пробуем найти файл динамически (на случай, если структура
           # изменится и DTSI разобьют/переименуют), с fallback на текущий путь
-          FILE=$(grep -RIl "partition@7f0000" openwrt/target/linux/ath79/dts | head -n1)
+          grep -RIl "tplink,tl-wdr4300" openwrt/target/linux/ath79/dts
           if [ -z "$FILE" ]; then
             FILE=openwrt/target/linux/ath79/dts/ar9344_tplink_tl-wdrxxxx.dtsi
             echo "::warning::динамический поиск по partition@7f0000 ничего не нашёл, использую жёстко заданный путь по умолчанию: $FILE"
