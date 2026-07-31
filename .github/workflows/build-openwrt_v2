@@ -1,4 +1,4 @@
-name: Build OpenWrt 16M for TL-WDR4300
+name: Build OpenWrt 16M for TL-WDR4300 v2
 
 on:
   workflow_dispatch:
