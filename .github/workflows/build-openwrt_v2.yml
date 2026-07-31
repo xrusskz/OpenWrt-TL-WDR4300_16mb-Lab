@@ -1,5 +1,4 @@
 name: OpenWrt_25.12.05 TL-WDR4300v2_16mb
-
 on:
   workflow_dispatch:
     inputs:
@@ -7,12 +6,10 @@ on:
         description: '(v2)'
         required: false
         default: ''
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
-
+    timeout-minutes: 480
     steps:
       - name: Install build dependencies
         run: |
@@ -25,207 +22,204 @@ jobs:
             curl rsync swig unzip zlib1g-dev \
             file wget device-tree-compiler \
             u-boot-tools ccache
-
           echo "========== Compiler versions =========="
           gcc --version | head -n1
           clang --version | head -n1
           ccache --version | head -n1
           echo "======================================="
-
       - name: Clone OpenWrt 25.12.5 source
         run: |
           git clone --branch v25.12.5 --depth 1 https://github.com/openwrt/openwrt.git
-
           cd openwrt
-
           echo "HEAD:     $(git rev-parse HEAD)"
           echo "Describe: $(git describe --always --tags)"
           echo "Log:      $(git log -1 --oneline)"
-
       - name: Locate DTS/DTSI files
         run: |
-
           echo "===== WDR files ====="
-
           find openwrt/target/linux/ath79/dts \
             \( \
             -iname "*wdr4300*" \
             -o -iname "*wdr3600*" \
             -o -iname "*wdrxxxx*" \
             \)
-
+          echo "===== Search firmware layout ====="
+          grep -RIn "7d0000" openwrt/target/linux/ath79/dts || true
           echo
           echo "===== Search old ART partition ====="
-
           grep -RIn "partition@7f0000" \
             openwrt/target/linux/ath79/dts || true
-
           echo
           echo "===== Search image definitions ====="
-
           grep -RIn "tplink_tl-wdr4300" \
             openwrt/target/linux/ath79/image || true
 
+####################################################################
+## PATCH IMAGE TYPE: WDR4300 v1 8MB -> 16MB
+####################################################################
+- name: Change WDR4300 v1 image type to 16MB
+  run: |
+    FILE="openwrt/target/linux/ath79/image/generic-tp-link.mk"
+
+    echo "Using:"
+    echo "$FILE"
+
+    if [ ! -f "$FILE" ]; then
+        echo "::error::File not found: $FILE"
+        exit 1
+    fi
+
+    echo
+    echo "===== BEFORE ====="
+    sed -n '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/p' "$FILE"
+
+    echo
+    echo "===== PATCHING WDR4300 v1 ONLY ====="
+
+    sed -i \
+      '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/ s#$(Device/tplink-8mlzma)#$(Device/tplink-16mlzma)#' \
+      "$FILE"
+
+    echo
+    echo "===== AFTER ====="
+    sed -n '/define Device\/tplink_tl-wdr4300-vl$/,/^endef$/p' "$FILE"
+
+    echo
+    echo "===== VERIFY ====="
+
+    grep -A10 \
+      '^define Device/tplink_tl-wdr4300-vl$' \
+      "$FILE" | grep -q '$(Device/tplink-16mlzma)' || {
+        echo "::error::WDR4300 v1 не переведён на 16mlzma"
+        exit 1
+    }
+
+    echo
+    echo "===== WDR4300 v1 16MB IMAGE TYPE PATCH SUCCESS ====="
       ####################################################################
       ## PATCH FLASH LAYOUT
       ####################################################################
-
       - name: Patch flash layout to 16MB
         run: |
+          echo "Using WDR4300 DTSI"
 
-          echo "Searching correct DTS/DTSI..."
+          FILE="openwrt/target/linux/ath79/dts/ar9344_tplink_tl-wdrxxxx.dtsi"
 
-          FILE=""
-
-          for F in \
-            $(find openwrt/target/linux/ath79/dts \
-              \( \
-                -iname "*wdr4300*" \
-                -o -iname "*wdr3600*" \
-                -o -iname "*wdrxxxx*" \
-              \)); do
-
-              if grep -q "0x020000 0x7d0000" "$F"; then
-                  FILE="$F"
-                  break
-              fi
-
-          done
-
-          if [ -z "$FILE" ]; then
-
-              echo "::error::Не найден DTS/DTSI с firmware-разделом 0x7d0000"
-
-              echo
-              echo "Кандидаты:"
-              find openwrt/target/linux/ath79/dts \
-                \( \
-                  -iname "*wdr4300*" \
-                  -o -iname "*wdr3600*" \
-                  -o -iname "*wdrxxxx*" \
-                \)
-
+          if [ ! -f "$FILE" ]; then
+              echo "::error::Не найден $FILE"
               exit 1
-
           fi
 
           echo
-          echo "Используется:"
-          echo "$FILE"
+          echo "===== FILE CONTENT ====="
+          sed -n '1,220p' "$FILE"
 
           echo
-          echo "===== BEFORE ====="
+          echo "===== SEARCH PARTITIONS ====="
+          grep -nE "partition|firmware|art|0x020000|0x7d0000|0x7f0000" "$FILE" || true
 
-          grep -nE \
-            "partition@7f0000|0x020000|0x7f0000" \
-            "$FILE"
+          echo
+          echo "===== PATCHING ====="
 
-          grep -q "0x020000 0x7d0000" "$FILE" \
-            || {
-                echo "::error::Исходная разметка неожиданная."
-                exit 1
-            }
-
-          sed -i \
-            's/reg = <0x020000 0x7d0000>;/reg = <0x020000 0xfd0000>;/' \
+          sed -i -E \
+            's/0x020000[[:space:]]+0x7d0000/0x020000 0xfd0000/' \
             "$FILE"
 
           sed -i \
             's/partition@7f0000/partition@ff0000/' \
             "$FILE"
 
-          sed -i \
-            's/reg = <0x7f0000 0x010000>;/reg = <0xff0000 0x010000>;/' \
+          sed -i -E \
+            's/0x7f0000[[:space:]]+0x010000/0xff0000 0x010000/' \
             "$FILE"
 
           echo
-          echo "===== AFTER ====="
+          echo "===== AFTER PATCH ====="
+          grep -nE "partition|firmware|art|0xfd0000|0xff0000" "$FILE" || true
 
-          grep -q "0xfd0000" "$FILE" || {
-              echo "::error::firmware partition not patched"
+          echo
+          echo "===== VERIFY PATCH ====="
+
+          grep -q "0x020000 0xfd0000" "$FILE" || {
+              echo "::error::Firmware partition не изменён"
               exit 1
           }
 
           grep -q "partition@ff0000" "$FILE" || {
-              echo "::error::ART partition name not patched"
+              echo "::error::ART partition не перемещён"
               exit 1
           }
 
-          grep -q "0xff0000" "$FILE" || {
-              echo "::error::ART offset not patched"
+          grep -q "0xff0000 0x010000" "$FILE" || {
+              echo "::error::ART offset не изменён"
               exit 1
           }
-          
+
+          echo
+          echo "===== PATCH SUCCESS ====="
+
           ################################################################
-          ## ВОТ СЮДА — патч IMAGE_SIZE в .mk файле образа
+          ## PATCH IMAGE_SIZE
           ################################################################
 
           echo
           echo "===== Patching IMAGE_SIZE limit ====="
 
-          MKFILE=$(grep -Rl "tplink_tl-wdr4300" openwrt/target/linux/ath79/image | head -1)
+          MKFILE=$(grep -Rl "tplink_tl-wdr4300" \
+            openwrt/target/linux/ath79/image \
+            | head -n1 || true)
 
           if [ -n "$MKFILE" ]; then
               echo "Found Makefile: $MKFILE"
 
               echo "--- BEFORE ---"
-              grep -n "IMAGE_SIZE" "$MKFILE" | grep -E "4300|7808|8000" || true
+              grep -n "IMAGE_SIZE" "$MKFILE" || true
 
-              # Патчим 7808k → 16128k (16 МБ минус bootloader + ART)
-              sed -i 's/IMAGE_SIZE := 7808k/IMAGE_SIZE := 16128k/' "$MKFILE"
+              sed -i -E \
+                's/(IMAGE_SIZE[[:space:]]*:?=[[:space:]]*)[0-9]+k/\116128k/' \
+                "$MKFILE"
 
               echo "--- AFTER ---"
-              grep -n "IMAGE_SIZE" "$MKFILE" | grep -E "4300|16128" || true
+              grep -n "IMAGE_SIZE" "$MKFILE" || true
 
-              # Проверка
-              grep -q "IMAGE_SIZE := 16128k" "$MKFILE" || {
-                  echo "::warning::IMAGE_SIZE не пропатчился — возможно, значение другое, проверьте вручную"
+              grep -q "16128k" "$MKFILE" || {
+                  echo "::error::IMAGE_SIZE не установлен в 16128k"
+                  exit 1
               }
-          else
-              echo "::warning::Не найден .mk файл с WDR4300, IMAGE_SIZE не пропатчен"
-          fi          
 
+              echo "===== IMAGE_SIZE PATCH SUCCESS ====="
+          else
+              echo "::error::Не найден image Makefile для WDR4300"
+              exit 1
+          fi          
       - name: Detect device profile name
         run: |
-
           CANDIDATES=$(
             grep -RhoE "define Device/tplink_tl-wdr4300[a-zA-Z0-9_-]*" \
               openwrt/target/linux/ath79/image \
               | sed 's#define Device/##' \
               | sort -u
           )
-
           echo "Найдены профили:"
           echo "$CANDIDATES"
-
           if [ -z "$CANDIDATES" ]; then
               echo "::error::Не найден профиль TL-WDR4300"
               exit 1
           fi
-
           FILTER="${{ github.event.inputs.hw_version }}"
-
           if [ -n "$FILTER" ]; then
-              PROFILE=$(echo "$CANDIDATES" | grep -i "$FILTER" | head -n1)
+              PROFILE=$(echo "$CANDIDATES" | grep -Fi "$FILTER" | head -n1)
           fi
-
           if [ -z "$PROFILE" ]; then
-
               PROFILE=$(echo "$CANDIDATES" | grep -x "tplink_tl-wdr4300" | head -n1)
-
               [ -z "$PROFILE" ] &&
                   PROFILE=$(echo "$CANDIDATES" | grep -x "tplink_tl-wdr4300-v1" | head -n1)
-
               [ -z "$PROFILE" ] &&
                   PROFILE=$(echo "$CANDIDATES" | head -n1)
-
           fi
-
           echo "Выбран профиль:"
           echo "$PROFILE"
-
           echo "DEVICE_PROFILE=$PROFILE" >> "$GITHUB_ENV"
-
       ####################################################################
       ## CACHE
       ####################################################################
@@ -235,8 +229,8 @@ jobs:
           path: openwrt/dl
           key: openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-dl
           restore-keys: |
-            openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-dl
-
+            openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-
+            openwrt-25.12.5-ath79-
       - name: Cache ccache
         uses: actions/cache@v4
         with:
@@ -244,22 +238,17 @@ jobs:
           key: openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-ccache
           restore-keys: |
             openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-ccache
-
       ####################################################################
       ## FEEDS
       ####################################################################
-
       - name: Update feeds
         working-directory: openwrt
         run: |
-
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
       ####################################################################
       ## CONFIG
       ####################################################################
-
       - name: Configure build
         working-directory: openwrt
         run: |
@@ -267,7 +256,6 @@ jobs:
             echo "::error::DEVICE_PROFILE пуст"
             exit 1
           }
-
           echo "CONFIG_TARGET_ath79=y" > .config
           echo "CONFIG_TARGET_ath79_generic=y" >> .config
           echo "CONFIG_TARGET_ath79_generic_DEVICE_${DEVICE_PROFILE}=y" >> .config
@@ -275,80 +263,58 @@ jobs:
           echo "CONFIG_CCACHE=y" >> .config
           echo "CONFIG_PACKAGE_luci=y" >> .config
           echo "CONFIG_PACKAGE_uhttpd=y" >> .config
-
           make defconfig
-
           echo
           echo "========== TARGET =========="
-
           grep "^CONFIG_TARGET_BOARD=" .config || true
           grep "^CONFIG_TARGET_SUBTARGET=" .config || true
           grep "^CONFIG_TARGET_PROFILE=" .config || true
           grep "^CONFIG_TARGET_MULTI_PROFILE=" .config || true
           grep "^CONFIG_TARGET_ath79_generic_DEVICE_" .config || true
-
           echo
           echo "========== LuCI =========="
-
           grep "^CONFIG_PACKAGE_luci=y" .config || true
           grep "^CONFIG_PACKAGE_uhttpd=y" .config || true
-
           echo
           echo "========== CCACHE =========="
-
           grep "^CONFIG_CCACHE=y" .config || true
-
           grep -q "CONFIG_TARGET_ath79_generic_DEVICE_${DEVICE_PROFILE}=y" .config || {
               echo "::error::Профиль устройства исчез после defconfig"
               exit 1
           }
-
       ####################################################################
       ## DOWNLOAD
       ####################################################################
-
       - name: Download sources
         working-directory: openwrt
         run: |
-
           make download -j"$(nproc)" V=s
-
           BAD=$(find dl -type f -size -1024c)
-
           if [ -n "$BAD" ]; then
               echo "::error::Обнаружены поврежденные архивы"
               echo "$BAD"
               exit 1
           fi
-
       ####################################################################
       ## BUILD
       ####################################################################
-
       - name: Build firmware
         working-directory: openwrt
         env:
           CCACHE_DIR: /home/runner/.ccache
         run: |
-
-          make -j"$(nproc)" V=s || make -j1 V=s
-
+          make -j"$(nproc)" V=sc || make -j1 V=sc
       - name: Show ccache statistics
         env:
           CCACHE_DIR: /home/runner/.ccache
         run: |
-
           ccache -s || true
-
       ####################################################################
       ## VERIFY DTB
       ####################################################################
-
       - name: Verify patched layout
         run: |
-
           echo "===== Searching WDR4300 DTB ====="
-
           DTB=$(
             find openwrt/build_dir openwrt/bin \
               -type f \
@@ -357,9 +323,7 @@ jobs:
             | grep -i "$DEVICE_PROFILE" \
             | head -n1
           )
-
           if [ -z "$DTB" ]; then
-
               DTB=$(
                 find openwrt/build_dir openwrt/bin \
                   -type f \
@@ -369,76 +333,47 @@ jobs:
                 | grep -i "4300" \
                 | head -n1
               )
-
           fi
-
           if [ -n "$DTB" ]; then
-
               echo "Found:"
               echo "$DTB"
-
               DTS=$(mktemp)
-
               trap 'rm -f "$DTS"' EXIT
-
               dtc -I dtb -O dts "$DTB" > "$DTS"
-
               echo
               echo "===== Partitions ====="
-
               grep -A4 -B1 "partition@" "$DTS"
-
-              grep -q "0xfd0000" "$DTS" || {
-                  echo "::error::Firmware partition was not patched."
+              grep -q "partition@ff0000" "$DTS" || {
+                  echo "::error::ART partition not moved"
                   exit 1
               }
-
-              grep -q "0xff0000" "$DTS" || {
-                  echo "::error::ART partition was not patched."
+              grep -q "reg = <0xff0000 0x010000>" "$DTS" || {
+                  echo "::error::ART offset wrong"
                   exit 1
               }
-
           else
-
               echo "::warning::Standalone DTB not found."
-
           fi
-
       ####################################################################
       ## SIZE CHECK
       ####################################################################
-
       - name: Verify image size
         run: |
-
           echo "===== Firmware ====="
-
           ls -lh openwrt/bin/targets/ath79/generic/*.bin || true
-
           LIMIT=16580608
-
           FAILED=0
-
           while read IMG; do
-
               [ -z "$IMG" ] && continue
-
               SIZE=$(stat -c%s "$IMG")
-
               echo
               echo "$IMG"
               echo "$SIZE bytes"
-
               if [ "$SIZE" -gt "$LIMIT" ]; then
-
                   echo "::error::Image is larger than firmware partition."
-
                   FAILED=1
-
               fi
-
           done < <(
-
               find openwrt/bin/targets/ath79/generic \
                 -maxdepth 1 \
                 \( \
@@ -446,47 +381,29 @@ jobs:
                   -o \
                   -iname "*sysupgrade*.bin" \
                 \)
-
           )
-
           [ "$FAILED" -eq 0 ] || exit 1
-
       ####################################################################
       ## COLLECT
       ####################################################################
-
       - name: Collect output
         run: |
-
           mkdir -p out
-
           cp \
             openwrt/bin/targets/ath79/generic/* \
             out/ 2>/dev/null || true
-
           cp openwrt/.config out/config.txt
-
           cp openwrt/feeds.conf.default out/
-
           find out -type f -exec sha256sum {} + > out/sha256sums.txt
-
           echo
-
           echo "===== OUTPUT ====="
-
           ls -lah out
-
       ####################################################################
       ## UPLOAD
       ####################################################################
-
       - name: Upload firmware
         uses: actions/upload-artifact@v4
-
         with:
-
           name: openwrt-25.12.5-wdr4300-16M-${{ github.run_number }}
-
           path: out/
-
           retention-days: 14
