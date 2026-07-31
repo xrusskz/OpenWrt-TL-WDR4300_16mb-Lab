@@ -1,10 +1,10 @@
-name: OpenWrt_25.12.05 TL-WDR4300v1_16mb
+name: OpenWrt_25.12.05 TL-WDR4300v2_16mb
 
 on:
   workflow_dispatch:
     inputs:
       hw_version:
-        description: '(v1)'
+        description: '(v2)'
         required: false
         default: ''
 
@@ -356,26 +356,6 @@ jobs:
               grep -q "0xff0000" "$DTS" || {
                   echo "::error::ART partition was not patched."
                   exit 1
-              }
-
-          else
-
-              echo "::warning::Standalone DTB not found."
-
-          fi
-
-      ####################################################################
-      ## SIZE CHECK
-      ####################################################################
-
-      - name: Verify image size
-        run: |
-              grep -q "0xff0000" "$DTS" || {
-
-                  echo "::error::ART partition was not patched."
-
-                  exit 1
-
               }
 
           else
