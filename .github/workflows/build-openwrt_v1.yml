@@ -11,7 +11,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 480
 
     steps:
       - name: Install build dependencies
@@ -152,7 +152,7 @@ jobs:
           echo
           echo "===== Patching IMAGE_SIZE limit ====="
 
-          MKFILE=$(grep -Rl "tplink_tl-wdr4300" openwrt/target/linux/ath79/image | head -1)
+          grep -Rl "tplink_tl-wdr4300" openwrt/target/linux/ath79/image
 
           if [ -n "$MKFILE" ]; then
               echo "Found Makefile: $MKFILE"
@@ -161,7 +161,9 @@ jobs:
               grep -n "IMAGE_SIZE" "$MKFILE" | grep -E "4300|7808|8000" || true
 
               # Патчим 7808k → 16128k (16 МБ минус bootloader + ART)
-              sed -i 's/IMAGE_SIZE := 7808k/IMAGE_SIZE := 16128k/' "$MKFILE"
+              sed -i -E \
+              's/IMAGE_SIZE[[:space:]]*:?=[[:space:]]*[0-9]+k/IMAGE_SIZE := 16128k/' \
+              "$MKFILE"
 
               echo "--- AFTER ---"
               grep -n "IMAGE_SIZE" "$MKFILE" | grep -E "4300|16128" || true
@@ -196,7 +198,7 @@ jobs:
           FILTER="${{ github.event.inputs.hw_version }}"
 
           if [ -n "$FILTER" ]; then
-              PROFILE=$(echo "$CANDIDATES" | grep -i "$FILTER" | head -n1)
+              PROFILE=$(echo "$CANDIDATES" | grep -Fi "$FILTER" | head -n1)
           fi
 
           if [ -z "$PROFILE" ]; then
@@ -223,9 +225,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: openwrt/dl
-          key: openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-dl
           restore-keys: |
-            openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-dl
+            openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-
+            openwrt-25.12.5-ath79-
 
       - name: Cache ccache
         uses: actions/cache@v4
@@ -378,13 +380,13 @@ jobs:
 
               grep -A4 -B1 "partition@" "$DTS"
 
-              grep -q "0xfd0000" "$DTS" || {
-                  echo "::error::Firmware partition was not patched."
+              grep -q "partition@ff0000" "$DTS" || {
+                  echo "::error::ART partition not moved"
                   exit 1
               }
 
-              grep -q "0xff0000" "$DTS" || {
-                  echo "::error::ART partition was not patched."
+              grep -q "reg = <0xff0000 0x010000>" "$DTS" || {
+                  echo "::error::ART offset wrong"
                   exit 1
               }
 
@@ -458,8 +460,7 @@ jobs:
 
           cp openwrt/feeds.conf.default out/
 
-          sha256sum out/* \
-            > out/sha256sums.txt
+          find out -type f -exec sha256sum {} + > out/sha256sums.txt
 
           echo
 
