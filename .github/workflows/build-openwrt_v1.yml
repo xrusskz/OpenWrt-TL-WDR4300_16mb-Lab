@@ -1,4 +1,4 @@
-name: Build OpenWrt 16M for TL-WDR4300
+name: Build OpenWrt 16M for TL-WDR4300 v1
 
 # Запускается вручную кнопкой "Run workflow" во вкладке Actions вашего репозитория
 on:
