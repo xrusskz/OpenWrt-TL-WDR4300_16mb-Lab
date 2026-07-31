@@ -11,7 +11,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 480
 
     steps:
       - name: Install build dependencies
@@ -160,8 +160,31 @@ jobs:
           echo "===== IMAGE SETTINGS ====="
 
           grep -RInE \
-          "tplink_tl-wdr4300|IMAGE_SIZE|KERNEL_SIZE|TPLINK_FLASHLAYOUT" \
-          openwrt/target/linux/ath79/image || true
+            "tplink_tl-wdr4300|IMAGE_SIZE|KERNEL_SIZE|TPLINK_FLASHLAYOUT" \
+            openwrt/target/linux/ath79/image || true
+
+          echo
+          echo "===== Patching IMAGE_SIZE ====="
+
+          MKFILE=$(grep -Rl "tplink_tl-wdr4300" openwrt/target/linux/ath79/image | head -1)
+
+          if [ -n "$MKFILE" ]; then
+              echo "Found: $MKFILE"
+
+              echo "--- BEFORE ---"
+              grep -n "IMAGE_SIZE" "$MKFILE" | grep -E "4300|7808|8000" || true
+
+              sed -i 's/IMAGE_SIZE := 7808k/IMAGE_SIZE := 16128k/' "$MKFILE"
+
+              echo "--- AFTER ---"
+              grep -n "IMAGE_SIZE" "$MKFILE" | grep -E "4300|16128" || true
+
+              grep -q "IMAGE_SIZE := 16128k" "$MKFILE" || {
+                  echo "::warning::IMAGE_SIZE не пропатчился — проверьте вручную"
+              }
+          else
+              echo "::warning::Makefile с WDR4300 не найден"
+          fi
 
           echo
           echo "===== PATCH DIFF ====="
@@ -216,17 +239,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: openwrt/dl
-          key: openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-dl
+          key: openwrt-25.12.5-ath79-dl-${{ github.run_id }}
           restore-keys: |
-            openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-dl
+            openwrt-25.12.5-ath79-dl-
 
       - name: Cache ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-ccache
+          key: openwrt-25.12.5-ath79-ccache-${{ github.run_id }}
           restore-keys: |
-            openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-ccache
+            openwrt-25.12.5-ath79-ccache-
 
       ####################################################################
       ## FEEDS
