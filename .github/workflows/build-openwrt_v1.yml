@@ -152,7 +152,7 @@ jobs:
           echo
           echo "===== Patching IMAGE_SIZE limit ====="
 
-          grep -Rl "tplink_tl-wdr4300" openwrt/target/linuxMKFILE=$(grep -Rl "tplink_tl-wdr4300" openwrt/target/linux/ath79/image | head -n1 || true)/ath79/image
+          MKFILE=$(grep -Rl "tplink_tl-wdr4300" openwrt/target/linux/ath79/image | head -n1 || true)
 
           if [ -n "$MKFILE" ]; then
               echo "Found Makefile: $MKFILE"
