@@ -356,14 +356,14 @@ jobs:
               echo
               echo "===== Partitions ====="
               grep -A4 -B1 "partition@" "$DTS"
-#              grep -q "partition@ff0000" "$DTS" || {
-#                  echo "::error::ART partition not moved"
-#                  exit 1
-#              }
-#              grep -q "reg = <0xff0000 0x10000>" "$DTS" || {
-#                  echo "::error::ART offset wrong"
-#                  exit 1
-#              }
+              #grep -q "partition@ff0000" "$DTS" || {
+              #    echo "::error::ART partition not moved"
+              #    exit 1
+              #}
+              #grep -q "reg = <0xff0000 0x10000>" "$DTS" || {
+              #    echo "::error::ART offset wrong"
+              #    exit 1
+              #}
           else
               echo "::warning::Standalone DTB not found."
           fi
