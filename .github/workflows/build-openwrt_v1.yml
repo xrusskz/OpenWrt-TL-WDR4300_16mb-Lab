@@ -308,7 +308,6 @@ jobs:
                   echo "::error::ART offset wrong"
                   exit 1
               }
-          else
               echo "::warning::Standalone DTB not found."
           fi
       ####################################################################
