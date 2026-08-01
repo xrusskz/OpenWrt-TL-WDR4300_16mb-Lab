@@ -1,0 +1,250 @@
+name: OpenWrt_25.12.5_TL-WDR4300v5_16MB
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 480
+
+    steps:
+
+      # ================================================================
+      # INSTALL DEPENDENCIES
+      # ================================================================
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git \
+            libncurses-dev libssl-dev libelf-dev \
+            python3 python3-setuptools python3-dev \
+            curl rsync swig unzip zlib1g-dev \
+            file wget device-tree-compiler \
+            u-boot-tools ccache
+
+      # ================================================================
+      # CLONE OPENWRT
+      # ================================================================
+
+      - name: Clone OpenWrt 25.12.5 source
+        run: |
+          git clone --branch v25.12.5 --depth 1 \
+            https://github.com/openwrt/openwrt.git
+
+          cd openwrt
+
+          echo "HEAD:"
+          git rev-parse HEAD
+
+          echo "VERSION:"
+          git describe --always --tags
+
+      # ================================================================
+      # PATCH WDR4300 v1 IMAGE TYPE
+      # 8MB -> 16MB
+      # ================================================================
+
+      - name: Change WDR4300 v1 image type to 16MB
+        run: |
+          FILE="openwrt/target/linux/ath79/image/generic-tp-link.mk"
+
+          echo "===== WDR4300 v1 BEFORE ====="
+
+          sed -n \
+            '/define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' \
+            "$FILE"
+
+          echo
+          echo "===== PATCHING WDR4300 v1 ====="
+
+          sed -i \
+            '/define Device\/tplink_tl-wdr4300-v1$/,/^endef$/ s/\$(Device\/tplink-8mlzma)/\$(Device\/tplink-16mlzma)/' \
+            "$FILE"
+
+          echo
+          echo "===== WDR4300 v1 AFTER ====="
+
+          sed -n \
+            '/define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' \
+            "$FILE"
+
+      # ================================================================
+      # PATCH FLASH PARTITIONS
+      # WDR4300 8MB -> 16MB
+      # ================================================================
+
+      - name: Patch WDR4300 flash layout to 16MB
+        run: |
+          FILE="openwrt/target/linux/ath79/dts/ar9344_tplink_tl-wdrxxxx.dtsi"
+
+          echo "===== ORIGINAL PARTITIONS ====="
+
+          grep -nE \
+            "partition|firmware|art|0x020000|0x7d0000|0x7f0000" \
+            "$FILE" || true
+
+          echo
+          echo "===== PATCHING FLASH LAYOUT ====="
+
+          # Firmware:
+          # 0x020000 + 0xfd0000 = 0xff0000
+          #
+          # U-Boot:  0x000000 - 0x01ffff
+          # Firmware: 0x020000 - 0xfeffff
+          # ART:      0xff0000 - 0xffffff
+
+          sed -i -E \
+            's/0x020000[[:space:]]+0x7d0000/0x020000 0xfd0000/' \
+            "$FILE"
+
+          # Move ART from 0x7f0000 to 0xff0000
+
+          sed -i \
+            's/partition@7f0000/partition@ff0000/' \
+            "$FILE"
+
+          sed -i -E \
+            's/0x7f0000[[:space:]]+0x010000/0xff0000 0x010000/' \
+            "$FILE"
+
+          echo
+          echo "===== PATCHED PARTITIONS ====="
+
+          grep -nE \
+            "partition|firmware|art|0xfd0000|0xff0000" \
+            "$FILE" || true
+
+      # ================================================================
+      # UPDATE FEEDS
+      # ================================================================
+
+      - name: Update feeds
+        working-directory: openwrt
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # ================================================================
+      # CONFIGURE BUILD
+      # ================================================================
+
+      - name: Configure build
+        working-directory: openwrt
+        run: |
+          echo "CONFIG_TARGET_ath79=y" > .config
+          echo "CONFIG_TARGET_ath79_generic=y" >> .config
+          echo "CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wdr4300-v1=y" >> .config
+
+          echo "CONFIG_PACKAGE_luci=y" >> .config
+          echo "CONFIG_PACKAGE_uhttpd=y" >> .config
+
+          echo "CONFIG_DEVEL=y" >> .config
+          echo "CONFIG_CCACHE=y" >> .config
+
+          make defconfig
+
+          echo
+          echo "===== TARGET CONFIGURATION ====="
+
+          grep "^CONFIG_TARGET_BOARD=" .config || true
+          grep "^CONFIG_TARGET_SUBTARGET=" .config || true
+          grep "^CONFIG_TARGET_PROFILE=" .config || true
+
+          echo
+          echo "===== WDR4300 PROFILE ====="
+
+          grep \
+            "CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wdr4300-v1" \
+            .config || true
+
+      # ================================================================
+      # CACHE DOWNLOADS
+      # ================================================================
+
+      - name: Cache dl
+        uses: actions/cache@v4
+        with:
+          path: openwrt/dl
+          key: openwrt-25.12.5-ath79-dl
+          restore-keys: |
+            openwrt-25.12.5-ath79-
+
+      # ================================================================
+      # CACHE CCACHE
+      # ================================================================
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: openwrt-25.12.5-ath79-ccache
+          restore-keys: |
+            openwrt-25.12.5-ath79-
+
+      # ================================================================
+      # DOWNLOAD SOURCES
+      # ================================================================
+
+      - name: Download sources
+        working-directory: openwrt
+        run: |
+          make download -j"$(nproc)" V=s
+
+      # ================================================================
+      # BUILD
+      # ================================================================
+
+      - name: Build firmware
+        working-directory: openwrt
+        env:
+          CCACHE_DIR: /home/runner/.ccache
+        run: |
+          make -j"$(nproc)" V=sc || make -j1 V=sc
+
+      # ================================================================
+      # CCACHE STATISTICS
+      # ================================================================
+
+      - name: Show ccache statistics
+        env:
+          CCACHE_DIR: /home/runner/.ccache
+        run: |
+          ccache -s || true
+
+      # ================================================================
+      # COLLECT OUTPUT
+      # ================================================================
+
+      - name: Collect output
+        run: |
+          mkdir -p out
+
+          cp \
+            openwrt/bin/targets/ath79/generic/* \
+            out/ 2>/dev/null || true
+
+          cp openwrt/.config \
+            out/config.txt
+
+          cp openwrt/feeds.conf.default \
+            out/
+
+          echo
+          echo "===== OUTPUT ====="
+
+          ls -lah out
+
+      # ================================================================
+      # UPLOAD FIRMWARE
+      # ================================================================
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-25.12.5-wdr4300-v1-16MB-${{ github.run_number }}
+          path: out/
+          retention-days: 14
