@@ -7,10 +7,6 @@ on:
         description: 'Подтверждение: физический роутер TL-WDR4300 v1'
         required: true
         default: 'TL-WDR4300 v1'
-      include_python:
-        description: 'Добавить Python3/PIP (увеличивает размер образа)'
-        required: true
-        default: 'true'
 
 jobs:
   build:
@@ -286,7 +282,7 @@ jobs:
           echo "CONFIG_PACKAGE_uhttpd=y" >> .config
           echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-base-ru=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-opkg-ru=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-package-manager-ru=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-firewall-ru=y" >> .config
           echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
           echo "CONFIG_PACKAGE_luci-theme-material=y" >> .config
@@ -408,13 +404,6 @@ jobs:
           echo "CONFIG_INET_TCP_DIAG=y" >> .config
           echo "CONFIG_INET_UDP_DIAG=y" >> .config
 
-          # Optional Python
-          if [ "${{ github.event.inputs.include_python }}" = "true" ]; then
-            echo "CONFIG_PACKAGE_python3=y" >> .config
-            echo "CONFIG_PACKAGE_python3-pip=y" >> .config
-            echo "CONFIG_PACKAGE_python3-asyncio=y" >> .config
-            echo "CONFIG_PACKAGE_python3-json=y" >> .config
-          fi
 
           make defconfig
 
@@ -444,6 +433,11 @@ jobs:
             echo "::error::OpenSSH SFTP server не включён после defconfig."
             exit 1
           }
+
+          if grep -qE '^CONFIG_PACKAGE_python3(-|=)' .config; then
+            echo "::error::Python не должен входить в firmware. Его установка предусмотрена позже на USB/extroot."
+            exit 1
+          fi
 
           echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y: PASS"
           echo "CONFIG_PACKAGE_openssh-sftp-server=y: PASS"
@@ -546,8 +540,17 @@ jobs:
         working-directory: openwrt
         env:
           CCACHE_DIR: /home/runner/.ccache
+        shell: bash
         run: |
-          make -j"$(nproc)" V=sc || make -j1 V=sc
+          set -o pipefail
+
+          if ! make -j"$(nproc)" V=sc; then
+            echo "::warning::Параллельная сборка завершилась ошибкой, повторяем однопоточно."
+            make -j1 V=sc
+          fi
+
+          echo "===== BUILD ARTIFACTS AFTER MAKE ====="
+          find bin/targets/ath79/generic -maxdepth 1 -type f -printf '%f %s bytes\n' | sort || true
 
       - name: Show ccache statistics
         env:
@@ -626,6 +629,10 @@ jobs:
           find "$DIR" -maxdepth 1 -type f -printf '%f %s bytes\\n' | sort
 
           echo "===== FLASHABLE FIRMWARE IMAGES ====="
+
+          find "$DIR" -maxdepth 1 -type f \
+            \( -iname "*wdr4300*v1*factory*.bin" -o -iname "*wdr4300*v1*sysupgrade*.bin" \) \
+            -printf '%f %s bytes\n' | sort || true
 
           FACTORY="$DIR/openwrt-ath79-generic-tplink_tl-wdr4300-v1-squashfs-factory.bin"
           SYSUPGRADE="$DIR/openwrt-ath79-generic-tplink_tl-wdr4300-v1-squashfs-sysupgrade.bin"
@@ -723,6 +730,7 @@ jobs:
             echo "Firmware partition: 0x020000 + 0xfd0000 (16192 KiB)"
             echo "ART partition: 0xff0000 + 0x010000"
             echo "LuCI language: Russian"
+            echo "Python in firmware: no (install later on USB/extroot)"
             echo "Build: v2.6"
             echo
             echo "Git HEAD:"
