@@ -1,4 +1,4 @@
-name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.6.usb
+name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.6_usb
 
 on:
   workflow_dispatch:
@@ -271,6 +271,10 @@ jobs:
           echo "CONFIG_TARGET_ath79_generic=y" >> .config
           echo "CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wdr4300-v1=y" >> .config
 
+          # Explicitly build the normal flashable SquashFS rootfs.
+          # initramfs-kernel.bin is only a RAM/TFTP recovery image.
+          echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+
           # Build
           echo "CONFIG_DEVEL=y" >> .config
           echo "CONFIG_CCACHE=y" >> .config
@@ -319,7 +323,6 @@ jobs:
           # DREAME / PCAP / NETWORK ANALYSIS
           # ==========================================================
           echo "CONFIG_PACKAGE_tcpdump=y" >> .config
-          echo "CONFIG_PACKAGE_tcpdump-mini=y" >> .config
           echo "CONFIG_PACKAGE_tshark=y" >> .config
           echo "CONFIG_PACKAGE_libpcap=y" >> .config
           echo "CONFIG_PACKAGE_bind-tools=y" >> .config
@@ -394,7 +397,7 @@ jobs:
           echo "CONFIG_PACKAGE_openssh-client=y" >> .config
           echo "CONFIG_PACKAGE_openssh-sftp-client=y" >> .config
           echo "CONFIG_PACKAGE_rsync=y" >> .config
-          echo "CONFIG_PACKAGE_sftp-server=y" >> .config
+          echo "CONFIG_PACKAGE_openssh-sftp-server=y" >> .config
 
           # Disk monitoring
           echo "CONFIG_PACKAGE_smartmontools=y" >> .config
@@ -432,6 +435,19 @@ jobs:
             exit 1
           }
 
+          grep -q "^CONFIG_TARGET_ROOTFS_SQUASHFS=y$" .config || {
+            echo "::error::SQUASHFS rootfs не включён; factory/sysupgrade не будут созданы."
+            exit 1
+          }
+
+          grep -q "^CONFIG_PACKAGE_openssh-sftp-server=y$" .config || {
+            echo "::error::OpenSSH SFTP server не включён после defconfig."
+            exit 1
+          }
+
+          echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y: PASS"
+          echo "CONFIG_PACKAGE_openssh-sftp-server=y: PASS"
+
           make download -j"$(nproc)"
 
       - name: Prepare ccache
@@ -442,17 +458,50 @@ jobs:
           ccache --zero-stats
           ccache -s
 
-      - name: Download sources and validate archives
+      - name: Download sources and validate downloads
         working-directory: openwrt
+        shell: bash
         run: |
-          set -e
+          set -euo pipefail
           make download -j"$(nproc)" V=s
-          BAD=$(find dl -type f -size -1024c -print)
-          if [ -n "$BAD" ]; then
-            echo "::error::Обнаружены подозрительно маленькие/повреждённые архивы:"
-            echo "$BAD"
+
+          test -d dl || {
+            echo "::error::Каталог dl не создан после make download."
             exit 1
-          fi
+          }
+
+          echo "===== DOWNLOAD DIRECTORY ====="
+          find dl -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
+
+          echo "===== DOWNLOAD CHECK: PASS ====="
+
+      - name: Verify 16MB flash geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FIRMWARE_OFFSET=$((16#020000))
+          FIRMWARE_SIZE=$((16#fd0000))
+          ART_OFFSET=$((16#ff0000))
+          ART_SIZE=$((16#010000))
+          FLASH_END=$((FIRMWARE_OFFSET + FIRMWARE_SIZE))
+
+          test "$FLASH_END" -eq "$ART_OFFSET" || {
+            echo "::error::Firmware и ART не состыкованы."
+            exit 1
+          }
+
+          test $((ART_OFFSET + ART_SIZE)) -eq $((16#1000000)) || {
+            echo "::error::ART не заканчивается на конце 16 MiB flash."
+            exit 1
+          }
+
+          test "$FIRMWARE_SIZE" -eq 16580608 || {
+            echo "::error::Ожидался размер firmware 16580608 bytes."
+            exit 1
+          }
+
+          echo "16MB flash geometry: PASS"
 
       - name: Verify WDR4300 source files
         working-directory: openwrt
@@ -467,6 +516,31 @@ jobs:
           grep -q 'ar9344_tplink_tl-wdr4300.dtsi'             target/linux/ath79/dts/ar9344_tplink_tl-wdr4300-v1.dts
 
           echo "WDR4300 DTS/DTSI source files: PASS"
+
+      - name: Verify final OpenWrt image profile
+        working-directory: openwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "===== EFFECTIVE IMAGE PROFILE ====="
+          awk '
+            /^define Device\/tplink_tl-wdr4300-v1$/ { in_wdr=1 }
+            in_wdr { print }
+            in_wdr && /^endef$/ { exit }
+          ' target/linux/ath79/image/generic-tp-link.mk
+
+          awk '
+            /^define Device\/tplink_tl-wdr4300-v1$/ { in_wdr=1; next }
+            in_wdr && /^[[:space:]]*\$\(Device\/tplink-16mlzma\)$/ { profile=1 }
+            in_wdr && /^[[:space:]]*IMAGE_SIZE[[:space:]]*:?=[[:space:]]*16192k[[:space:]]*$/ { size=1 }
+            in_wdr && /^endef$/ { end=1; exit }
+            END {
+              if (!(in_wdr && end && profile && size)) exit 1
+            }
+          ' target/linux/ath79/image/generic-tp-link.mk
+
+          echo "Final WDR4300 image profile: PASS"
 
       - name: Build firmware
         working-directory: openwrt
@@ -489,21 +563,14 @@ jobs:
           echo "===== SEARCH DTB ====="
 
           DTB=$(
-            find openwrt/build_dir openwrt/bin \
-              -type f \
-              \( -iname "ar9344_tplink_tl-wdr4300-v1.dtb" -o \
-                 -iname "ar9344_tplink_tl-wdr4300-v1.dtb.o" \) \
-              -print -quit 2>/dev/null || true
+            find openwrt/build_dir openwrt/bin               -type f               -iname "ar9344_tplink_tl-wdr4300-v1.dtb"               -print -quit 2>/dev/null || true
           )
 
           if [ -z "$DTB" ]; then
             DTB=$(
-              find openwrt/build_dir openwrt/bin \
-                -type f \
-                \( -iname "*wdr4300*.dtb" -o -iname "*wdr4300*.dtb.o" \) \
-                -print -quit 2>/dev/null || true
+              find openwrt/build_dir openwrt/bin                 -type f                 -iname "*wdr4300*.dtb"                 -print -quit 2>/dev/null || true
             )
-          fi          
+          fi
 
           if [ -z "$DTB" ]; then
             echo "::error::Итоговый DTB WDR4300 не найден."
@@ -555,30 +622,40 @@ jobs:
             exit 1
           }
 
-          echo "===== FIRMWARE IMAGES ====="
-          ls -lh "$DIR"/*.bin 2>/dev/null || true
+          echo "===== ALL TARGET IMAGES ====="
+          find "$DIR" -maxdepth 1 -type f -printf '%f %s bytes\\n' | sort
 
-          COUNT=0
-          while IFS= read -r IMG; do
-            [ -z "$IMG" ] && continue
-            COUNT=$((COUNT + 1))
+          echo "===== FLASHABLE FIRMWARE IMAGES ====="
+
+          FACTORY="$DIR/openwrt-ath79-generic-tplink_tl-wdr4300-v1-squashfs-factory.bin"
+          SYSUPGRADE="$DIR/openwrt-ath79-generic-tplink_tl-wdr4300-v1-squashfs-sysupgrade.bin"
+
+          for IMG in "$FACTORY" "$SYSUPGRADE"; do
+            if [ ! -f "$IMG" ]; then
+              echo "::error::Ожидаемый flashable image не найден: $IMG"
+              echo "===== EFFECTIVE ROOTFS CONFIG ====="
+              grep -E '^CONFIG_TARGET_ROOTFS_' openwrt/.config || true
+              echo "===== DEVICE CONFIG ====="
+              grep -E '^CONFIG_TARGET_ath79_generic_DEVICE_' openwrt/.config || true
+              echo "===== TARGET DIRECTORY ====="
+              ls -lah "$DIR" || true
+              exit 1
+            fi
+          done
+
+          for IMG in "$FACTORY" "$SYSUPGRADE"; do
             SIZE=$(stat -c%s "$IMG")
             echo "$IMG -> $SIZE bytes"
 
             if [ "$SIZE" -gt "$LIMIT" ]; then
-              echo "::error::$IMG больше 16MB firmware partition ($LIMIT bytes)"
+              echo "::error::$IMG больше максимально допустимого размера firmware partition ($LIMIT bytes)"
+              echo "::error::Требуется уменьшить набор пакетов."
               exit 1
             fi
-          done < <(
-            find "$DIR" -maxdepth 1 -type f \
-              \( -iname "*factory*.bin" -o -iname "*sysupgrade*.bin" \)
-          )
+          done
 
-          [ "$COUNT" -gt 0 ] || {
-            echo "::error::Factory/sysupgrade BIN не найден."
-            exit 1
-          }
-
+          echo "Factory image: PASS"
+          echo "Sysupgrade image: PASS"
           echo "===== IMAGE SIZE CHECK: PASS ====="
 
       - name: Verify required files and package configuration
@@ -589,6 +666,7 @@ jobs:
           echo "===== REQUIRED CONFIG ====="
           REQUIRED=(
             "CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wdr4300-v1=y"
+            "CONFIG_TARGET_ROOTFS_SQUASHFS=y"
             "CONFIG_PACKAGE_luci=y"
             "CONFIG_PACKAGE_luci-i18n-base-ru=y"
             "CONFIG_PACKAGE_luci-i18n-firewall-ru=y"
@@ -598,6 +676,7 @@ jobs:
             "CONFIG_PACKAGE_kmod-wireguard=y"
             "CONFIG_PACKAGE_tcpdump=y"
             "CONFIG_PACKAGE_tshark=y"
+            "CONFIG_PACKAGE_openssh-sftp-server=y"
             "CONFIG_PACKAGE_kmod-usb-storage=y"
             "CONFIG_PACKAGE_kmod-fs-ext4=y"
             "CONFIG_PACKAGE_block-mount=y"
@@ -611,6 +690,12 @@ jobs:
           done
 
           echo "===== REQUIRED CONFIG CHECK: PASS ====="
+
+          test -f target/linux/ath79/image/generic-tp-link.mk
+          grep -q '^define Device/tplink_tl-wdr4300-v1$' target/linux/ath79/image/generic-tp-link.mk
+          grep -q '^TARGET_DEVICES += tplink_tl-wdr4300-v1$' target/linux/ath79/image/generic-tp-link.mk
+
+          echo "WDR4300 target declaration: PASS"
 
       - name: Collect artifacts
         shell: bash
@@ -638,7 +723,7 @@ jobs:
             echo "Firmware partition: 0x020000 + 0xfd0000 (16192 KiB)"
             echo "ART partition: 0xff0000 + 0x010000"
             echo "LuCI language: Russian"
-            echo "Build: v2.5"
+            echo "Build: v2.6"
             echo
             echo "Git HEAD:"
             (cd openwrt && git rev-parse HEAD)
@@ -657,6 +742,6 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.6.usb-${{ github.run_number }}
+          name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.6_usb-${{ github.run_number }}
           path: out/
           retention-days: 30
