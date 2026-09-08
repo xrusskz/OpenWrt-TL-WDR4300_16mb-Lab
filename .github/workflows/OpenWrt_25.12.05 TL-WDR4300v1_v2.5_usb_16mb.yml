@@ -30,7 +30,7 @@ jobs:
 
       - name: Clone OpenWrt 25.12.5 source
         run: |
-          git clone --branch v25.12.5 --depth 1 https://github.com
+          git clone --branch v25.12.5 --depth 1 https://github.com/openwrt/openwrt.git
           cd openwrt
           echo "HEAD:     $(git rev-parse HEAD)"
           echo "Describe: $(git describe --always --tags)"
