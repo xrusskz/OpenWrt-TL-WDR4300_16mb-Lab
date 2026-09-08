@@ -85,34 +85,59 @@ jobs:
           set -euo pipefail
           FILE="openwrt/target/linux/ath79/dts/ar9344_tplink_tl-wdrxxxx.dtsi"
           test -f "$FILE" || { echo "::error::Не найден общий DTSI WDR4300: $FILE"; exit 1; }
-          grep -q 'reg = <0x020000 0x7d0000>;' "$FILE" || {
+          
+          echo "===== BEFORE PATCH ====="
+          cat "$FILE"
+          
+          # Проверяем, что файл содержит ожидаемую разметку (с гибким regex)
+          if ! grep -qE 'reg[[:space:]]*=[[:space:]]*<0x0*20000[[:space:]]+0x0*7d0000>' "$FILE"; then
             echo "::error::В $FILE не найдена ожидаемая 8MB firmware-разметка."
+            echo "::error::Ожидалось: reg = <0x020000 0x7d0000> (с любыми ведущими нулями)"
             exit 1
-          }
-          grep -q 'partition@7f0000' "$FILE" || {
+          fi
+          
+          if ! grep -qE 'partition@0*7f0000' "$FILE"; then
             echo "::error::В $FILE не найден старый ART partition@7f0000."
             exit 1
-          }
+          fi
+          
           echo "Патчим только WDR4300 shared DTSI: $FILE"
-          sed -i -E 's/0x020000[[:space:]]\+0x7d0000/0x020000 0xfd0000/' "$FILE"
-          sed -i -E \
-            -e 's/partition@7f0000/partition@ff0000/g' \
-            -e 's/0x7f0000[[:space:]]\+0x010000/0xff0000 0x010000/' \
-            "$FILE"
-          echo "===== PATCHED PARTITIONS ====="
-          grep -nE 'partition@|firmware|art|0x020000|0xfd0000|0xff0000|0x010000' "$FILE" || true
-          grep -qE 'reg = <0x020000 0xfd0000>;' "$FILE" || { echo "::error::Firmware partition не переведён на 16MB."; exit 1; }
-          grep -q 'partition@ff0000' "$FILE" || { echo "::error::ART partition не перемещён в 0xff0000."; exit 1; }
-          grep -qE 'reg = <0xff0000 0x010000>;' "$FILE" || { echo "::error::ART size/offset неверны."; exit 1; }
-
+          
+          # Патчим firmware partition: 0x7d0000 -> 0xfd0000
+          # Используем case-insensitive флаг /I и опциональные ведущие нули
+          sed -i -E 's/(reg[[:space:]]*=[[:space:]]*<0x0*20000[[:space:]]+)0x0*7d0000/\10xfd0000/I' "$FILE"
+          
+          # Патчим ART partition: @7f0000 -> @ff0000
+          sed -i -E 's/partition@0*7f0000/partition@ff0000/gI' "$FILE"
+          
+          # Патчим reg у ART: 0x7f0000 -> 0xff0000
+          sed -i -E 's/(reg[[:space:]]*=[[:space:]]*<)0x0*7f0000([[:space:]]+0x0*10000>)/\10xff0000\2/gI' "$FILE"
+          
+          echo "===== AFTER PATCH ====="
+          cat "$FILE"
+          
+          # Проверяем результат (с гибким regex)
+          if ! grep -qE 'reg[[:space:]]*=[[:space:]]*<0x0*20000[[:space:]]+0x0*fd0000>' "$FILE"; then
+            echo "::error::Firmware partition не переведён на 16MB."
+            exit 1
+          fi
+          
+          if ! grep -qE 'partition@0*ff0000' "$FILE"; then
+            echo "::error::ART partition не перемещён в 0xff0000."
+            exit 1
+          fi
+          
+          if ! grep -qE 'reg[[:space:]]*=[[:space:]]*<0x0*ff0000[[:space:]]+0x0*10000>' "$FILE"; then
+            echo "::error::ART size/offset неверны."
+            exit 1
+          fi
+          
           WDR_DTS="openwrt/target/linux/ath79/dts/ar9344_tplink_tl-wdr4300-v1.dts"
           test -f "$WDR_DTS" || { echo "::error::Не найден DTS TL-WDR4300 v1: $WDR_DTS"; exit 1; }
           grep -q 'ar9344_tplink_tl-wdr4300.dtsi' "$WDR_DTS" || {
             echo "::error::WDR4300 v1 не подключает ожидаемый shared DTSI."
             exit 1
           }
-          echo "===== WDR4300 DTS ====="
-          cat "$WDR_DTS"
           echo "===== WDR4300 FLASH LAYOUT CHECK: PASS ====="
 
       - name: Patch IMAGE_SIZE
@@ -127,9 +152,8 @@ jobs:
           }
           echo "===== WDR4300 IMAGE DEFINITION BEFORE ====="
           sed -n '/^define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' "$MKFILE"
-
+          
           awk '
-            BEGIN { in_wdr=0 }
             /^define Device\/tplink_tl-wdr4300-v1$/ { in_wdr=1 }
             in_wdr && /^[[:space:]]*IMAGE_SIZE[[:space:]]*:?=/ { next }
             in_wdr && /^endef$/ {
@@ -139,10 +163,10 @@ jobs:
             { print }
           ' "$MKFILE" > "$MKFILE.tmp"
           mv "$MKFILE.tmp" "$MKFILE"
-
+          
           echo "===== WDR4300 IMAGE DEFINITION AFTER ====="
           sed -n '/^define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' "$MKFILE"
-
+          
           if ! awk '
             BEGIN { in_wdr=0; found=0 }
             /^define Device\/tplink_tl-wdr4300-v1$/ { in_wdr=1; next }
@@ -179,18 +203,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: openwrt/dl
-          key: openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-dl
+          key: openwrt-25.12.5-ath79-${{ runner.os }}-dl
           restore-keys: |
-            openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-
             openwrt-25.12.5-ath79-
 
       - name: Cache ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-ccache
+          key: openwrt-25.12.5-ath79-${{ runner.os }}-ccache
           restore-keys: |
-            openwrt-25.12.5-ath79-${{ runner.os }}-${{ runner.arch }}-ccache
+            openwrt-25.12.5-ath79-ccache
 
       - name: Update feeds
         working-directory: openwrt
@@ -292,9 +315,9 @@ jobs:
             echo "CONFIG_INET_TCP_DIAG=y"
             echo "CONFIG_INET_UDP_DIAG=y"
           } > .config
-
+          
           make defconfig
-
+          
           echo "===== TARGET ====="
           grep -E "^CONFIG_TARGET_.*(BOARD|SUBTARGET|PROFILE|DEVICE_)" .config || true
           echo "===== RUSSIAN LUCi ====="
@@ -303,10 +326,19 @@ jobs:
           grep -E "^CONFIG_PACKAGE_(openvpn-openssl|kmod-tun|wireguard-tools|kmod-wireguard|luci-proto-wireguard)=y" .config || true
           echo "===== STORAGE ====="
           grep -E "^CONFIG_PACKAGE_(kmod-usb-storage|kmod-fs-ext4|kmod-fs-vfat|kmod-fs-exfat|kmod-fs-ntfs3|block-mount)=y" .config || true
-
-          grep -q "^CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wdr4300-v1=y$" .config || { echo "::error::После defconfig выбран не TL-WDR4300 v1"; exit 1; }
-          grep -q "^CONFIG_TARGET_ROOTFS_SQUASHFS=y$" .config || { echo "::error::SQUASHFS rootfs не включён."; exit 1; }
-          grep -q "^CONFIG_PACKAGE_openssh-sftp-server=y$" .config || { echo "::error::OpenSSH SFTP server не включён после defconfig."; exit 1; }
+          
+          grep -q "^CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wdr4300-v1=y$" .config || {
+            echo "::error::После defconfig выбран не TL-WDR4300 v1"
+            exit 1
+          }
+          grep -q "^CONFIG_TARGET_ROOTFS_SQUASHFS=y$" .config || {
+            echo "::error::SQUASHFS rootfs не включён."
+            exit 1
+          }
+          grep -q "^CONFIG_PACKAGE_openssh-sftp-server=y$" .config || {
+            echo "::error::OpenSSH SFTP server не включён после defconfig."
+            exit 1
+          }
           if grep -qE '^CONFIG_PACKAGE_python3(-|=)' .config; then
             echo "::error::Python не должен входить в firmware."
             exit 1
@@ -369,7 +401,7 @@ jobs:
             in_wdr { print }
             in_wdr && /^endef$/ { exit }
           ' target/linux/ath79/image/generic-tp-link.mk
-
+          
           awk '
             BEGIN { in_wdr=0; profile=0; size=0; end=0 }
             /^define Device\/tplink_tl-wdr4300-v1$/ { in_wdr=1; next }
@@ -414,20 +446,35 @@ jobs:
             exit 1
           fi
           echo "DTB: $DTB"
-
+          
           DTS=$(mktemp)
           if [ -n "$DTS" ]; then
             trap 'rm -f "$DTS"' EXIT
           fi
           dtc -I dtb -O dts "$DTB" > "$DTS"
-
+          
           echo "===== PARTITIONS ====="
           grep -A5 -B1 "partition@" "$DTS"
-
-          grep -qE 'partition@0*20000' "$DTS" || { echo "::error::Firmware partition@20000 не найден."; exit 1; }
-          grep -qE 'reg *= *<0x0*20000 +0x0*fd0000>' "$DTS" || { echo "::error::Firmware reg не равен <0x20000 0xfd0000>."; exit 1; }
-          grep -qE 'partition@0*ff0000' "$DTS" || { echo "::error::ART partition@ff0000 не найден."; exit 1; }
-          grep -qE 'reg *= *<0x0*ff0000 +0x0*10000>' "$DTS" || { echo "::error::ART reg не равен <0xff0000 0x10000>."; exit 1; }
+          
+          # Гибкая проверка firmware
+          if ! grep -qE 'partition@0*20000' "$DTS"; then
+            echo "::error::Firmware partition@20000 не найден."
+            exit 1
+          fi
+          if ! grep -qE 'reg[[:space:]]*=[[:space:]]*<0x0*20000[[:space:]]+0x0*fd0000>' "$DTS"; then
+            echo "::error::Firmware reg не равен <0x20000 0xfd0000>."
+            exit 1
+          fi
+          
+          # Гибкая проверка ART
+          if ! grep -qE 'partition@0*ff0000' "$DTS"; then
+            echo "::error::ART partition@ff0000 не найден."
+            exit 1
+          fi
+          if ! grep -qE 'reg[[:space:]]*=[[:space:]]*<0x0*ff0000[[:space:]]+0x0*10000>' "$DTS"; then
+            echo "::error::ART reg не равен <0xff0000 0x10000>."
+            exit 1
+          fi
           echo "===== DTB LAYOUT CHECK: PASS ====="
 
       - name: Verify firmware image size
@@ -437,18 +484,18 @@ jobs:
           DIR="openwrt/bin/targets/ath79/generic"
           LIMIT=16580608
           test -d "$DIR" || { echo "::error::Каталог firmware не найден: $DIR"; exit 1; }
-
+          
           echo "===== ALL TARGET IMAGES ====="
           find "$DIR" -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
-
+          
           echo "===== FLASHABLE FIRMWARE IMAGES ====="
           find "$DIR" -maxdepth 1 -type f \
             \( -iname "*wdr4300*v1*factory*.bin" -o -iname "*wdr4300*v1*sysupgrade*.bin" \) \
             -printf '%f %s bytes\n' | sort || true
-
+          
           FACTORY="$DIR/openwrt-ath79-generic-tplink_tl-wdr4300-v1-squashfs-factory.bin"
           SYSUPGRADE="$DIR/openwrt-ath79-generic-tplink_tl-wdr4300-v1-squashfs-sysupgrade.bin"
-
+          
           for IMG in "$FACTORY" "$SYSUPGRADE"; do
             if [ ! -f "$IMG" ]; then
               echo "::error::Ожидаемый flashable image не найден: $IMG"
@@ -461,7 +508,7 @@ jobs:
               exit 1
             fi
           done
-
+          
           for IMG in "$FACTORY" "$SYSUPGRADE"; do
             SIZE=$(stat -c%s "$IMG")
             echo "$IMG -> $SIZE bytes"
@@ -498,13 +545,21 @@ jobs:
             "CONFIG_PACKAGE_block-mount=y"
           )
           for item in "${REQUIRED[@]}"; do
-            grep -qx "$item" .config || { echo "::error::Отсутствует обязательная настройка: $item"; exit 1; }
+            grep -qx "$item" .config || {
+              echo "::error::Отсутствует обязательная настройка: $item"
+              exit 1
+            }
           done
           echo "===== REQUIRED CONFIG CHECK: PASS ====="
-
+          
           test -f target/linux/ath79/image/generic-tp-link.mk
           grep -q '^define Device/tplink_tl-wdr4300-v1$' target/linux/ath79/image/generic-tp-link.mk
-          grep -q '^TARGET_DEVICES += tplink_tl-wdr4300-v1$' target/linux/ath79/image/generic-tp-link.mk
+          
+          # Гибкая проверка TARGET_DEVICES (может быть = или +=)
+          if ! grep -qE '^TARGET_DEVICES[[:space:]]*[+:]?=[[:space:]]*.*tplink_tl-wdr4300-v1' target/linux/ath79/image/generic-tp-link.mk; then
+            echo "::error::TARGET_DEVICES не содержит tplink_tl-wdr4300-v1"
+            exit 1
+          fi
           echo "WDR4300 target declaration: PASS"
 
       - name: Collect artifacts
@@ -521,7 +576,7 @@ jobs:
           fi
           cp openwrt/.config out/config.txt
           cp openwrt/feeds.conf.default out/ 2>/dev/null || true
-
+          
           {
             echo "OpenWrt 25.12.5"
             echo "Target: ath79/generic"
@@ -536,7 +591,7 @@ jobs:
             echo "Git HEAD:"
             (cd openwrt && git rev-parse HEAD)
           } > out/BUILD_INFO.txt
-
+          
           test -n "$(find out -type f -print -quit)" || { echo "::error::Каталог out пуст."; exit 1; }
           find out -type f ! -name sha256sums.txt -exec sha256sum {} + > out/sha256sums.txt
           echo "===== OUTPUT ====="
