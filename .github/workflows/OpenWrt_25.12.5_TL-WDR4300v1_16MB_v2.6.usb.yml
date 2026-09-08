@@ -91,11 +91,10 @@ jobs:
           echo "===== AFTER ====="
           sed -n '/define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' "$FILE"
 
-          sed -n '/define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' "$FILE" |
-            grep -q '\$(Device/tplink-16mlzma)' || {
-              echo "::error::WDR4300 v1 не переведён на tplink-16mlzma"
-              exit 1
-            }
+          if ! grep -qE '^[[:space:]]*\$\(Device/tplink-16mlzma\)$' "$FILE"; then
+            echo "::error::WDR4300 v1 не переведён на tplink-16mlzma"
+            exit 1
+          fi
 
       - name: Patch WDR4300 flash layout to 16MB
         shell: bash
@@ -169,31 +168,76 @@ jobs:
         run: |
           set -euo pipefail
 
-          MKFILE=$(grep -Rlm 1 "tplink_tl-wdr4300-v1" \
-            openwrt/target/linux/ath79/image || true)
+          MKFILE="openwrt/target/linux/ath79/image/generic-tp-link.mk"
 
-          if [ -z "$MKFILE" ]; then
-            echo "::error::Не найден image Makefile WDR4300"
+          test -f "$MKFILE" || {
+            echo "::error::Не найден image Makefile WDR4300: $MKFILE"
+            exit 1
+          }
+
+          grep -q '^define Device/tplink_tl-wdr4300-v1$' "$MKFILE" || {
+            echo "::error::В $MKFILE отсутствует Device/tplink_tl-wdr4300-v1"
+            exit 1
+          }
+
+          echo "===== WDR4300 IMAGE DEFINITION BEFORE ====="
+          sed -n '/^define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' "$MKFILE"
+
+          # The stock target inherits $(Device/tplink-8mlzma), whose default
+          # IMAGE_SIZE is for the 8 MiB layout. Override it explicitly for
+          # the physical 16 MiB TL-WDR4300 v1.
+          awk '
+            /^define Device\/tplink_tl-wdr4300-v1$/ {
+              in_wdr=1
+            }
+            in_wdr && /^[[:space:]]*IMAGE_SIZE[[:space:]]*:?=/ {
+              next
+            }
+            in_wdr && /^endef$/ {
+              print "  IMAGE_SIZE := 16192k"
+              in_wdr=0
+            }
+            { print }
+          ' "$MKFILE" > "$MKFILE.tmp"
+
+          mv "$MKFILE.tmp" "$MKFILE"
+
+          echo "===== WDR4300 IMAGE DEFINITION AFTER ====="
+          sed -n '/^define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' "$MKFILE"
+
+          if ! awk '
+            /^define Device\/tplink_tl-wdr4300-v1$/ { in_wdr=1; next }
+            in_wdr && /^[[:space:]]*IMAGE_SIZE[[:space:]]*:?=[[:space:]]*16192k[[:space:]]*$/ { found=1 }
+            in_wdr && /^endef$/ { exit(found ? 0 : 1) }
+            END { if (!in_wdr) exit(found ? 0 : 1) }
+          ' "$MKFILE"; then
+            echo "::error::IMAGE_SIZE для TL-WDR4300 v1 не установлен в 16192k"
             exit 1
           fi
 
-          echo "Using: $MKFILE"
-          grep -n "IMAGE_SIZE" "$MKFILE" || true
+          echo "===== IMAGE_SIZE CHECK: PASS ====="
 
-          sed -i -E \
-            '/^define Device\/tplink_tl-wdr4300-v1$/,/^endef$/ s/(IMAGE_SIZE[[:space:]]*:?=[[:space:]]*)[0-9]+k/\116128k/' \
-            "$MKFILE"
+      - name: Verify patched image definition
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="openwrt/target/linux/ath79/image/generic-tp-link.mk"
 
-          sed -n '/^define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' "$MKFILE" |
-            grep -q 'IMAGE_SIZE.*16128k' || {
-              echo "::error::IMAGE_SIZE для TL-WDR4300 v1 не установлен в 16128k"
-              exit 1
-            }
+          awk '
+            /^define Device\/tplink_tl-wdr4300-v1$/ { in_wdr=1; print; next }
+            in_wdr { print }
+            in_wdr && /^endef$/ { exit }
+          ' "$FILE"
 
-          grep -q "16128k" "$MKFILE" || {
-            echo "::error::IMAGE_SIZE != 16128k"
-            exit 1
-          }
+          awk '
+            /^define Device\/tplink_tl-wdr4300-v1$/ { in_wdr=1; next }
+            in_wdr && /^[[:space:]]*\$\(Device\/tplink-16mlzma\)$/ { profile=1 }
+            in_wdr && /^[[:space:]]*IMAGE_SIZE[[:space:]]*:?=[[:space:]]*16192k[[:space:]]*$/ { size=1 }
+            in_wdr && /^endef$/ { exit((profile && size) ? 0 : 1) }
+            END { if (!in_wdr) exit 1 }
+          ' "$FILE"
+
+          echo "Patched WDR4300 image definition: PASS"
 
       - name: Cache OpenWrt downloads
         uses: actions/cache@v4
@@ -444,13 +488,22 @@ jobs:
 
           echo "===== SEARCH DTB ====="
 
-          DTB=$(find openwrt/build_dir openwrt/bin \
+          DTB=$(
+            find openwrt/build_dir openwrt/bin \
               -type f \
-              \( -iname "*wdr4300*.dtb" -o \
-                 -iname "*tplink*.dtb" -o \
-                 -iname "*wdr4300*.dtb.o" -o \
-                 -iname "*tplink*.dtb.o" \) \
-              -print -quit 2>/dev/null || true)          
+              \( -iname "ar9344_tplink_tl-wdr4300-v1.dtb" -o \
+                 -iname "ar9344_tplink_tl-wdr4300-v1.dtb.o" \) \
+              -print -quit 2>/dev/null || true
+          )
+
+          if [ -z "$DTB" ]; then
+            DTB=$(
+              find openwrt/build_dir openwrt/bin \
+                -type f \
+                \( -iname "*wdr4300*.dtb" -o -iname "*wdr4300*.dtb.o" \) \
+                -print -quit 2>/dev/null || true
+            )
+          fi          
 
           if [ -z "$DTB" ]; then
             echo "::error::Итоговый DTB WDR4300 не найден."
@@ -495,7 +548,7 @@ jobs:
           set -euo pipefail
 
           DIR="openwrt/bin/targets/ath79/generic"
-          LIMIT=16515072
+          LIMIT=16580608
 
           test -d "$DIR" || {
             echo "::error::Каталог firmware не найден: $DIR"
@@ -581,8 +634,8 @@ jobs:
             echo "OpenWrt 25.12.5"
             echo "Target: ath79/generic"
             echo "Device: TL-WDR4300 v1"
-            echo "Flash: 16 MB"
-            echo "Firmware partition: 0x020000 + 0xfd0000"
+            echo "Flash: 16 MB (firmware partition 16192 KiB)"
+            echo "Firmware partition: 0x020000 + 0xfd0000 (16192 KiB)"
             echo "ART partition: 0xff0000 + 0x010000"
             echo "LuCI language: Russian"
             echo "Build: v2.5"
