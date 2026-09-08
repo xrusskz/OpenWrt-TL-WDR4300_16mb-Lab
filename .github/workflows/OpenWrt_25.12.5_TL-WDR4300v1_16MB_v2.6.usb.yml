@@ -102,46 +102,67 @@ jobs:
         run: |
           set -euo pipefail
 
-          # На OpenWrt 25.12.5 WDR4300 используется общий DTSI.
-          FILE=$(grep -RIlm 1 -E '0x020000[[:space:]]+0x7d0000' \
-            openwrt/target/linux/ath79/dts || true)
+          # Не ищем старую разметку по всему каталогу DTS:
+          # у других TP-Link устройств встречается такой же 8MB layout.
+          # Патчим строго общий DTSI WDR4300.
+          FILE="openwrt/target/linux/ath79/dts/ar9344_tplink_tl-wdrxxxx.dtsi"
 
-          if [ -z "$FILE" ]; then
-            echo "::error::Не найден DTS/DTSI со старой 8MB разметкой."
+          test -f "$FILE" || {
+            echo "::error::Не найден общий DTSI WDR4300: $FILE"
             exit 1
-          fi
+          }
 
-          echo "Патчим: $FILE"
+          grep -q 'reg = <0x020000 0x7d0000>;' "$FILE" || {
+            echo "::error::В $FILE не найдена ожидаемая 8MB firmware-разметка."
+            exit 1
+          }
+
+          grep -q 'partition@7f0000' "$FILE" || {
+            echo "::error::В $FILE не найден старый ART partition@7f0000."
+            exit 1
+          }
+
+          echo "Патчим только WDR4300 shared DTSI: $FILE"
 
           # firmware: 0x020000 + 0xfd0000 = 0xff0000
-          sed -i -E \
-            's/0x020000[[:space:]]+0x7d0000/0x020000 0xfd0000/' "$FILE"
+          sed -i -E             's/0x020000[[:space:]]+0x7d0000/0x020000 0xfd0000/' "$FILE"
 
           # ART: 0x7f0000 -> 0xff0000, размер 0x10000
-          sed -i -E \
-            -e 's/partition@7f0000/partition@ff0000/g' \
-            -e 's/0x7f0000[[:space:]]+0x010000/0xff0000 0x010000/' \
-            "$FILE"
+          sed -i -E             -e 's/partition@7f0000/partition@ff0000/g'             -e 's/0x7f0000[[:space:]]+0x010000/0xff0000 0x010000/'             "$FILE"
 
           echo "===== PATCHED PARTITIONS ====="
-          grep -nE \
-            'partition@|firmware|art|0x020000|0xfd0000|0xff0000|0x010000' \
-            "$FILE" || true
+          grep -nE             'partition@|firmware|art|0x020000|0xfd0000|0xff0000|0x010000'             "$FILE" || true
 
-          grep -qE '0x020000[[:space:]]+0xfd0000' "$FILE" || {
-            echo "::error::Firmware partition не переведён на 16MB"
+          grep -qE 'reg = <0x020000 0xfd0000>;' "$FILE" || {
+            echo "::error::Firmware partition не переведён на 16MB."
             exit 1
           }
 
           grep -q 'partition@ff0000' "$FILE" || {
-            echo "::error::ART partition не перемещён в 0xff0000"
+            echo "::error::ART partition не перемещён в 0xff0000."
             exit 1
           }
 
-          grep -qE '0xff0000[[:space:]]+0x010000' "$FILE" || {
-            echo "::error::ART size/offset неверны"
+          grep -qE 'reg = <0xff0000 0x010000>;' "$FILE" || {
+            echo "::error::ART size/offset неверны."
             exit 1
           }
+
+          WDR_DTS="openwrt/target/linux/ath79/dts/ar9344_tplink_tl-wdr4300-v1.dts"
+          test -f "$WDR_DTS" || {
+            echo "::error::Не найден DTS TL-WDR4300 v1: $WDR_DTS"
+            exit 1
+          }
+
+          grep -q 'ar9344_tplink_tl-wdr4300.dtsi' "$WDR_DTS" || {
+            echo "::error::WDR4300 v1 не подключает ожидаемый shared DTSI."
+            exit 1
+          }
+
+          echo "===== WDR4300 DTS ====="
+          cat "$WDR_DTS"
+
+          echo "===== WDR4300 FLASH LAYOUT CHECK: PASS ====="
 
       - name: Patch IMAGE_SIZE
         shell: bash
@@ -388,6 +409,20 @@ jobs:
             echo "$BAD"
             exit 1
           fi
+
+      - name: Verify WDR4300 source files
+        working-directory: openwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f target/linux/ath79/dts/ar9344_tplink_tl-wdr4300-v1.dts
+          test -f target/linux/ath79/dts/ar9344_tplink_tl-wdr4300.dtsi
+          test -f target/linux/ath79/dts/ar9344_tplink_tl-wdrxxxx.dtsi
+
+          grep -q 'ar9344_tplink_tl-wdr4300.dtsi'             target/linux/ath79/dts/ar9344_tplink_tl-wdr4300-v1.dts
+
+          echo "WDR4300 DTS/DTSI source files: PASS"
 
       - name: Build firmware
         working-directory: openwrt
