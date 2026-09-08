@@ -693,7 +693,7 @@ jobs:
             echo "ART partition: 0xff0000 + 0x010000"
             echo "Flash end: 0x1000000"
             echo "LuCI language: Russian"
-            echo "Build: v2.9"
+            echo "Build: v2.7.9"
             echo
             echo "DTB verification: strict TL-WDR4300 model/compatible"
             echo "DTB verification: firmware partition@20000"
