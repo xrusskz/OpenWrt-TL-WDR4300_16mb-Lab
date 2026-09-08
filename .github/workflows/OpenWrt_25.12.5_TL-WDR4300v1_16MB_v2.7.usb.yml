@@ -1,16 +1,16 @@
-name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.7.usb
+name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.7_usb
 
 on:
   workflow_dispatch:
     inputs:
       confirm_model:
-        description: 'Подтверждение: физический роутер TL-WDR4300 v1'
+        description: "Подтверждение: физический роутер TL-WDR4300 v1"
         required: true
-        default: 'TL-WDR4300 v1'
+        default: "TL-WDR4300 v1"
       include_python:
-        description: 'Добавить Python3/PIP (увеличивает размер образа)'
+        description: "Добавить Python3/PIP (увеличивает размер образа)"
         required: true
-        default: 'true'
+        default: "true"
 
 jobs:
   build:
@@ -20,6 +20,7 @@ jobs:
     steps:
       - name: Install build dependencies
         run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y \
             build-essential clang flex bison g++ gawk \
@@ -32,6 +33,7 @@ jobs:
 
       - name: Verify selected hardware
         run: |
+          set -euo pipefail
           MODEL="${{ github.event.inputs.confirm_model }}"
           if [ "$MODEL" != "TL-WDR4300 v1" ]; then
             echo "::error::Этот workflow предназначен только для физического TL-WDR4300 v1."
@@ -40,30 +42,31 @@ jobs:
 
       - name: Clone OpenWrt 25.12.5
         run: |
+          set -euo pipefail
           git clone --branch v25.12.5 --depth 1 https://github.com/openwrt/openwrt.git
           cd openwrt
           echo "HEAD:     $(git rev-parse HEAD)"
           echo "Describe: $(git describe --always --tags)"
           echo "Log:      $(git log -1 --oneline)"
 
-      - name: Locate WDR4300 DTS and image definitions
+      - name: Locate exact WDR4300 DTS and image definitions
         run: |
-          set -e
-          echo "===== WDR4300 DTS/DTSI ====="
-          find openwrt/target/linux/ath79/dts \
-            \( -iname "*wdr4300*" -o -iname "*wdrxxxx*" \) -print
+          set -euo pipefail
+          DTS_DIR="openwrt/target/linux/ath79/dts"
+          IMG_DIR="openwrt/target/linux/ath79/image"
 
-          echo "===== Old firmware layout ====="
-          grep -RIn "0x020000.*0x7d0000\|0x7d0000" \
-            openwrt/target/linux/ath79/dts || true
+          test -d "$DTS_DIR"
+          test -d "$IMG_DIR"
 
-          echo "===== Old ART ====="
-          grep -RIn "partition@7f0000\|0x7f0000" \
-            openwrt/target/linux/ath79/dts || true
+          echo "===== WDR4300 DTS/DTSI CANDIDATES ====="
+          find "$DTS_DIR" -type f \
+            \( -iname "*wdr4300*" -o -iname "*wdrxxxx*" \) -print | sort
 
-          echo "===== WDR4300 v1 image profile ====="
-          grep -RIn "define Device/tplink_tl-wdr4300-v1" \
-            openwrt/target/linux/ath79/image || true
+          echo "===== WDR4300 DEVICE PROFILE ====="
+          grep -RIn "define Device/tplink_tl-wdr4300-v1" "$IMG_DIR" || {
+            echo "::error::Профиль tplink_tl-wdr4300-v1 не найден."
+            exit 1
+          }
 
       - name: Patch WDR4300 v1 image type 8MB -> 16MB
         shell: bash
@@ -88,103 +91,105 @@ jobs:
 
           sed -n '/define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' "$FILE" |
             grep -q '\$(Device/tplink-16mlzma)' || {
-              echo "::error::WDR4300 v1 не переведён на tplink-16mlzma"
+              echo "::error::WDR4300 v1 не переведён на tplink-16mlzma."
               exit 1
             }
 
-      - name: Patch WDR4300 flash layout to 16MB
+      - name: Patch exact WDR4300 flash layout to 16MB
         shell: bash
         run: |
           set -euo pipefail
 
-          # На OpenWrt 25.12.5 WDR4300 используется общий DTSI.
+          DTS_DIR="openwrt/target/linux/ath79/dts"
           FILE=""
+
+          # ВАЖНО:
+          # Ищем старую разметку только в DTS/DTSI, относящихся к WDR4300/WDRxxxx.
+          # Больше нельзя брать первый произвольный TP-Link DTS.
           while IFS= read -r -d '' candidate; do
-            if grep -qE '0x020000[[:space:]]+0x7d0000' "$candidate"; then
+            if grep -qE '0x020000[[:space:]]+0x7d0000' "$candidate" &&
+               grep -qE 'partition@7f0000|0x7f0000[[:space:]]+0x010000' "$candidate"; then
               FILE="$candidate"
               break
             fi
           done < <(
-            find openwrt/target/linux/ath79/dts -type f -print0
+            find "$DTS_DIR" -type f \
+              \( -iname "*wdr4300*" -o -iname "*wdrxxxx*" \) \
+              -print0
           )
 
           if [ -z "$FILE" ]; then
-            echo "::error::Не найден DTS/DTSI со старой 8MB разметкой."
+            echo "::error::Не найден DTS/DTSI WDR4300/WDRxxxx со старой 8MB разметкой."
+            echo "===== DTS FILES ====="
+            find "$DTS_DIR" -type f -print | sort
             exit 1
           fi
 
-          echo "Патчим: $FILE"
+          echo "Patching exact WDR4300 layout file: $FILE"
 
-          # One atomic patch pass:
-          # firmware: 0x020000 + 0xfd0000 = 0xff0000
-          # ART: 0x7f0000 -> 0xff0000, size 0x010000
           sed -i -E \
             -e 's/0x020000[[:space:]]+0x7d0000/0x020000 0xfd0000/' \
             -e 's/partition@7f0000/partition@ff0000/g' \
             -e 's/0x7f0000[[:space:]]+0x010000/0xff0000 0x010000/' \
             "$FILE"
 
-          echo "===== PATCHED PARTITIONS ====="
+          echo "===== PATCHED WDR4300 PARTITIONS ====="
           grep -nE \
             'partition@|firmware|art|0x020000|0x7d0000|0xfd0000|0x7f0000|0xff0000|0x010000' \
             "$FILE" || true
 
-          if grep -qE '0x020000[[:space:]]+0x7d0000' "$FILE"; then
+          ! grep -qE '0x020000[[:space:]]+0x7d0000' "$FILE" || {
             echo "::error::Старая firmware-разметка 8MB всё ещё присутствует."
             exit 1
-          fi
+          }
 
-          if grep -qE '0x7f0000[[:space:]]+0x010000' "$FILE"; then
+          ! grep -qE '0x7f0000[[:space:]]+0x010000' "$FILE" || {
             echo "::error::Старая ART-разметка 8MB всё ещё присутствует."
             exit 1
-          fi
+          }
 
           grep -qE '0x020000[[:space:]]+0xfd0000' "$FILE" || {
-            echo "::error::Firmware partition не переведён на 16MB"
+            echo "::error::Firmware не переведён на 0x020000 + 0xfd0000."
             exit 1
           }
 
           grep -q 'partition@ff0000' "$FILE" || {
-            echo "::error::ART partition не перемещён в 0xff0000"
+            echo "::error::ART partition не перемещён в 0xff0000."
             exit 1
           }
 
           grep -qE '0xff0000[[:space:]]+0x010000' "$FILE" || {
-            echo "::error::ART size/offset неверны"
+            echo "::error::ART не имеет reg 0xff0000 + 0x010000."
             exit 1
           }
 
-      - name: Patch IMAGE_SIZE
+      - name: Patch IMAGE_SIZE for 16MB firmware
         shell: bash
         run: |
           set -euo pipefail
 
-          MKFILE=""
-          while IFS= read -r -d '' candidate; do
-            if grep -q "tplink_tl-wdr4300-v1" "$candidate"; then
-              MKFILE="$candidate"
-              break
-            fi
-          done < <(
-            find openwrt/target/linux/ath79/image -type f -print0
-          )
-
-          if [ -z "$MKFILE" ]; then
-            echo "::error::Не найден image Makefile WDR4300"
-            exit 1
-          fi
-
-          echo "Using: $MKFILE"
-          grep -n "IMAGE_SIZE" "$MKFILE" || true
-
-          sed -i -E \
-            's/(IMAGE_SIZE[[:space:]]*:?=[[:space:]]*)[0-9]+k/\116192k/' \
-            "$MKFILE"
-
-          grep -q "16192k" "$MKFILE" || {
-            echo "::error::IMAGE_SIZE != 16192k"
+          MKFILE="openwrt/target/linux/ath79/image/generic-tp-link.mk"
+          test -f "$MKFILE" || {
+            echo "::error::Не найден $MKFILE"
             exit 1
           }
+
+          # IMAGE_SIZE относится только к конкретному WDR4300 v1 profile.
+          BEFORE="$(sed -n '/define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' "$MKFILE")"
+          echo "===== WDR4300 IMAGE PROFILE BEFORE ====="
+          echo "$BEFORE"
+
+          # В профиле Device размер берётся из tplink-16mlzma.
+          # Дополнительная глобальная замена IMAGE_SIZE не выполняется:
+          # это могло бы повредить другие TP-Link profiles.
+
+          grep -q '\$(Device/tplink-16mlzma)' <<<"$BEFORE" || {
+            echo "::error::WDR4300 v1 не использует tplink-16mlzma."
+            exit 1
+          }
+
+          echo "===== 16MB IMAGE PROFILE ====="
+          sed -n '/define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' "$MKFILE"
 
       - name: Cache OpenWrt downloads
         uses: actions/cache@v4
@@ -206,6 +211,7 @@ jobs:
       - name: Update feeds
         working-directory: openwrt
         run: |
+          set -euo pipefail
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
@@ -214,170 +220,135 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "CONFIG_TARGET_ath79=y" > .config
-          echo "CONFIG_TARGET_ath79_generic=y" >> .config
-          echo "CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wdr4300-v1=y" >> .config
+          cat > .config <<'EOF'
+          CONFIG_TARGET_ath79=y
+          CONFIG_TARGET_ath79_generic=y
+          CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wdr4300-v1=y
 
-          # Build
-          echo "CONFIG_DEVEL=y" >> .config
-          echo "CONFIG_CCACHE=y" >> .config
+          CONFIG_DEVEL=y
+          CONFIG_CCACHE=y
 
-          # ==========================================================
-          # РУССКИЙ ЯЗЫК / LUCi
-          # ==========================================================
-          echo "CONFIG_PACKAGE_luci=y" >> .config
-          echo "CONFIG_PACKAGE_uhttpd=y" >> .config
-          echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-base-ru=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-opkg-ru=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-firewall-ru=y" >> .config
-          echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
-          echo "CONFIG_PACKAGE_luci-theme-material=y" >> .config
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_uhttpd=y
+          CONFIG_PACKAGE_luci-ssl=y
+          CONFIG_PACKAGE_luci-i18n-base-ru=y
+          CONFIG_PACKAGE_luci-i18n-opkg-ru=y
+          CONFIG_PACKAGE_luci-i18n-firewall-ru=y
+          CONFIG_PACKAGE_luci-theme-bootstrap=y
+          CONFIG_PACKAGE_luci-theme-material=y
+          CONFIG_PACKAGE_zoneinfo-asia=y
+          CONFIG_PACKAGE_libustream-openssl=y
 
-          # Русская локаль/локализация CLI
-          echo "CONFIG_PACKAGE_zoneinfo-asia=y" >> .config
-          echo "CONFIG_PACKAGE_libustream-openssl=y" >> .config
+          CONFIG_PACKAGE_kmod-usb-storage=y
+          CONFIG_PACKAGE_kmod-scsi-core=y
+          CONFIG_PACKAGE_kmod-scsi-generic=y
+          CONFIG_PACKAGE_usbutils=y
+          CONFIG_PACKAGE_kmod-fs-ext4=y
+          CONFIG_PACKAGE_kmod-fs-vfat=y
+          CONFIG_PACKAGE_dosfstools=y
+          CONFIG_PACKAGE_kmod-fs-exfat=y
+          CONFIG_PACKAGE_exfatprogs=y
+          CONFIG_PACKAGE_kmod-fs-ntfs3=y
+          CONFIG_PACKAGE_ntfs3-mount=y
+          CONFIG_PACKAGE_block-mount=y
+          CONFIG_PACKAGE_blockd=y
+          CONFIG_PACKAGE_e2fsprogs=y
+          CONFIG_PACKAGE_e2fsprogs-fsck=y
+          CONFIG_PACKAGE_mount-utils=y
 
-          # ==========================================================
-          # USB / STORAGE
-          # ==========================================================
-          echo "CONFIG_PACKAGE_kmod-usb-storage=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-scsi-core=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-scsi-generic=y" >> .config
-          echo "CONFIG_PACKAGE_usbutils=y" >> .config
+          CONFIG_PACKAGE_tcpdump=y
+          CONFIG_PACKAGE_tcpdump-mini=y
+          CONFIG_PACKAGE_tshark=y
+          CONFIG_PACKAGE_libpcap=y
+          CONFIG_PACKAGE_bind-tools=y
+          CONFIG_PACKAGE_drill=y
+          CONFIG_PACKAGE_nmap-ssl=y
+          CONFIG_PACKAGE_ca-certificates=y
+          CONFIG_PACKAGE_openssl-util=y
 
-          # Filesystems
-          echo "CONFIG_PACKAGE_kmod-fs-ext4=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-fs-vfat=y" >> .config
-          echo "CONFIG_PACKAGE_dosfstools=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-fs-exfat=y" >> .config
-          echo "CONFIG_PACKAGE_exfatprogs=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-fs-ntfs3=y" >> .config
-          echo "CONFIG_PACKAGE_ntfs3-mount=y" >> .config
+          CONFIG_PACKAGE_ip-full=y
+          CONFIG_PACKAGE_iproute2=y
+          CONFIG_PACKAGE_kmod-netlink-diag=y
+          CONFIG_PACKAGE_conntrack=y
+          CONFIG_PACKAGE_kmod-nf-conntrack=y
+          CONFIG_PACKAGE_kmod-nf-conntrack-netlink=y
+          CONFIG_PACKAGE_iptables=y
+          CONFIG_PACKAGE_iptables-mod-conntrack=y
+          CONFIG_PACKAGE_mtr=y
+          CONFIG_PACKAGE_iperf3=y
+          CONFIG_PACKAGE_ethtool=y
+          CONFIG_PACKAGE_curl=y
+          CONFIG_PACKAGE_wget-ssl=y
+          CONFIG_PACKAGE_jq=y
 
-          # extroot/block
-          echo "CONFIG_PACKAGE_block-mount=y" >> .config
-          echo "CONFIG_PACKAGE_blockd=y" >> .config
-          echo "CONFIG_PACKAGE_e2fsprogs=y" >> .config
-          echo "CONFIG_PACKAGE_e2fsprogs-fsck=y" >> .config
-          echo "CONFIG_PACKAGE_mount-utils=y" >> .config
+          CONFIG_PACKAGE_openvpn-openssl=y
+          CONFIG_PACKAGE_luci-app-openvpn=y
+          CONFIG_PACKAGE_luci-i18n-openvpn-ru=y
+          CONFIG_PACKAGE_kmod-tun=y
 
-          # ==========================================================
-          # DREAME / PCAP / NETWORK ANALYSIS
-          # ==========================================================
-          echo "CONFIG_PACKAGE_tcpdump=y" >> .config
-          echo "CONFIG_PACKAGE_tcpdump-mini=y" >> .config
-          echo "CONFIG_PACKAGE_tshark=y" >> .config
-          echo "CONFIG_PACKAGE_libpcap=y" >> .config
-          echo "CONFIG_PACKAGE_bind-tools=y" >> .config
-          echo "CONFIG_PACKAGE_drill=y" >> .config
-          echo "CONFIG_PACKAGE_nmap-ssl=y" >> .config
-          echo "CONFIG_PACKAGE_ca-certificates=y" >> .config
-          echo "CONFIG_PACKAGE_openssl-util=y" >> .config
+          CONFIG_PACKAGE_wireguard-tools=y
+          CONFIG_PACKAGE_luci-proto-wireguard=y
+          CONFIG_PACKAGE_kmod-wireguard=y
+          CONFIG_WIREGUARD=y
+          CONFIG_TUN=y
 
-          # ==========================================================
-          # NETWORK
-          # ==========================================================
-          echo "CONFIG_PACKAGE_ip-full=y" >> .config
-          echo "CONFIG_PACKAGE_iproute2=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-netlink-diag=y" >> .config
-          echo "CONFIG_PACKAGE_conntrack=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-nf-conntrack=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-nf-conntrack-netlink=y" >> .config
-          echo "CONFIG_PACKAGE_iptables=y" >> .config
-          echo "CONFIG_PACKAGE_iptables-mod-conntrack=y" >> .config
-          echo "CONFIG_PACKAGE_mtr=y" >> .config
-          echo "CONFIG_PACKAGE_iperf3=y" >> .config
-          echo "CONFIG_PACKAGE_ethtool=y" >> .config
-          echo "CONFIG_PACKAGE_curl=y" >> .config
-          echo "CONFIG_PACKAGE_wget-ssl=y" >> .config
-          echo "CONFIG_PACKAGE_jq=y" >> .config
+          CONFIG_PACKAGE_iwinfo=y
+          CONFIG_PACKAGE_iw=y
+          CONFIG_PACKAGE_wireless-tools=y
 
-          # ==========================================================
-          # VPN
-          # ==========================================================
-          echo "CONFIG_PACKAGE_openvpn-openssl=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-openvpn=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-openvpn-ru=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
+          CONFIG_PACKAGE_htop=y
+          CONFIG_PACKAGE_procps-ng=y
+          CONFIG_PACKAGE_lsof=y
+          CONFIG_PACKAGE_file=y
+          CONFIG_PACKAGE_findutils=y
+          CONFIG_PACKAGE_coreutils=y
+          CONFIG_PACKAGE_coreutils-timeout=y
+          CONFIG_PACKAGE_nano=y
+          CONFIG_PACKAGE_vim-full=y
+          CONFIG_PACKAGE_screen=y
+          CONFIG_PACKAGE_tmux=y
+          CONFIG_PACKAGE_logrotate=y
 
-          echo "CONFIG_PACKAGE_wireguard-tools=y" >> .config
-          echo "CONFIG_PACKAGE_luci-proto-wireguard=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-wireguard=y" >> .config
-          echo "CONFIG_WIREGUARD=y" >> .config
-          echo "CONFIG_TUN=y" >> .config
+          CONFIG_PACKAGE_dropbear=y
+          CONFIG_PACKAGE_openssh-client=y
+          CONFIG_PACKAGE_openssh-sftp-client=y
+          CONFIG_PACKAGE_rsync=y
+          CONFIG_PACKAGE_sftp-server=y
+          CONFIG_PACKAGE_smartmontools=y
 
-          # ==========================================================
-          # WIFI DIAGNOSTICS
-          # ==========================================================
-          echo "CONFIG_PACKAGE_iwinfo=y" >> .config
-          echo "CONFIG_PACKAGE_iw=y" >> .config
-          echo "CONFIG_PACKAGE_wireless-tools=y" >> .config
+          CONFIG_NETLINK_DIAG=y
+          CONFIG_INET_DIAG=y
+          CONFIG_INET_TCP_DIAG=y
+          CONFIG_INET_UDP_DIAG=y
+          EOF
 
-          # ==========================================================
-          # SYSTEM DIAGNOSTICS
-          # ==========================================================
-          echo "CONFIG_PACKAGE_htop=y" >> .config
-          echo "CONFIG_PACKAGE_procps-ng=y" >> .config
-          echo "CONFIG_PACKAGE_lsof=y" >> .config
-          echo "CONFIG_PACKAGE_file=y" >> .config
-          echo "CONFIG_PACKAGE_findutils=y" >> .config
-          echo "CONFIG_PACKAGE_coreutils=y" >> .config
-          echo "CONFIG_PACKAGE_coreutils-timeout=y" >> .config
-
-          # Editors / terminal
-          echo "CONFIG_PACKAGE_nano=y" >> .config
-          echo "CONFIG_PACKAGE_vim-full=y" >> .config
-          echo "CONFIG_PACKAGE_screen=y" >> .config
-          echo "CONFIG_PACKAGE_tmux=y" >> .config
-
-          # Logging
-          echo "CONFIG_PACKAGE_logrotate=y" >> .config
-
-          # ==========================================================
-          # SSH / FILE TRANSFER
-          # ==========================================================
-          echo "CONFIG_PACKAGE_dropbear=y" >> .config
-          echo "CONFIG_PACKAGE_openssh-client=y" >> .config
-          echo "CONFIG_PACKAGE_openssh-sftp-client=y" >> .config
-          echo "CONFIG_PACKAGE_rsync=y" >> .config
-          echo "CONFIG_PACKAGE_sftp-server=y" >> .config
-
-          # Disk monitoring
-          echo "CONFIG_PACKAGE_smartmontools=y" >> .config
-
-          # Kernel diagnostics
-          echo "CONFIG_NETLINK_DIAG=y" >> .config
-          echo "CONFIG_INET_DIAG=y" >> .config
-          echo "CONFIG_INET_TCP_DIAG=y" >> .config
-          echo "CONFIG_INET_UDP_DIAG=y" >> .config
-
-          # Optional Python
           if [ "${{ github.event.inputs.include_python }}" = "true" ]; then
-            echo "CONFIG_PACKAGE_python3=y" >> .config
-            echo "CONFIG_PACKAGE_python3-pip=y" >> .config
-            echo "CONFIG_PACKAGE_python3-asyncio=y" >> .config
-            echo "CONFIG_PACKAGE_python3-json=y" >> .config
+            cat >> .config <<'EOF'
+          CONFIG_PACKAGE_python3=y
+          CONFIG_PACKAGE_python3-pip=y
+          CONFIG_PACKAGE_python3-asyncio=y
+          CONFIG_PACKAGE_python3-json=y
+          EOF
           fi
 
           make defconfig
 
           echo "===== TARGET ====="
-          grep -E "^CONFIG_TARGET_.*(BOARD|SUBTARGET|PROFILE|DEVICE_)" .config || true
+          grep -E '^CONFIG_TARGET_.*(BOARD|SUBTARGET|PROFILE|DEVICE_)' .config || true
 
-          echo "===== RUSSIAN LUCi ====="
-          grep "^CONFIG_PACKAGE_luci.*-ru=y" .config || true
-
-          echo "===== VPN ====="
-          grep -E "^CONFIG_PACKAGE_(openvpn-openssl|kmod-tun|wireguard-tools|kmod-wireguard|luci-proto-wireguard)=y" .config || true
-
-          echo "===== STORAGE ====="
-          grep -E "^CONFIG_PACKAGE_(kmod-usb-storage|kmod-fs-ext4|kmod-fs-vfat|kmod-fs-exfat|kmod-fs-ntfs3|block-mount)=y" .config || true
-
-          grep -q "^CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wdr4300-v1=y$" .config || {
-            echo "::error::После defconfig выбран не TL-WDR4300 v1"
+          grep -q '^CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wdr4300-v1=y$' .config || {
+            echo "::error::После defconfig выбран не TL-WDR4300 v1."
             exit 1
           }
+
+          echo "===== RUSSIAN LUCI ====="
+          grep '^CONFIG_PACKAGE_luci.*-ru=y' .config || true
+
+          echo "===== VPN ====="
+          grep -E '^CONFIG_PACKAGE_(openvpn-openssl|kmod-tun|wireguard-tools|kmod-wireguard|luci-proto-wireguard)=y' .config || true
+
+          echo "===== STORAGE ====="
+          grep -E '^CONFIG_PACKAGE_(kmod-usb-storage|kmod-fs-ext4|kmod-fs-vfat|kmod-fs-exfat|kmod-fs-ntfs3|block-mount)=y' .config || true
 
           make download -j"$(nproc)"
 
@@ -385,6 +356,7 @@ jobs:
         env:
           CCACHE_DIR: /home/runner/.ccache
         run: |
+          set -euo pipefail
           ccache --set-config=max_size=5G
           ccache --zero-stats
           ccache -s
@@ -392,9 +364,9 @@ jobs:
       - name: Download sources and validate archives
         working-directory: openwrt
         run: |
-          set -e
+          set -euo pipefail
           make download -j"$(nproc)" V=s
-          BAD=$(find dl -type f -size -1024c)
+          BAD="$(find dl -type f -size -1024c -print)"
           if [ -n "$BAD" ]; then
             echo "::error::Обнаружены подозрительно маленькие/повреждённые архивы:"
             echo "$BAD"
@@ -406,6 +378,7 @@ jobs:
         env:
           CCACHE_DIR: /home/runner/.ccache
         run: |
+          set -euo pipefail
           make -j"$(nproc)" V=sc || make -j1 V=sc
 
       - name: Show ccache statistics
@@ -414,51 +387,87 @@ jobs:
         run: |
           ccache -s || true
 
-      - name: Verify final DTB and partition layout
+      - name: Verify final DTB and exact partition layout
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "===== SEARCH DTB ====="
+          BUILD_DIR="openwrt/build_dir"
+          BIN_DIR="openwrt/bin"
+          DTS_DIR="openwrt/target/linux/ath79/dts"
 
-          test -d openwrt/build_dir || {
+          test -d "$BUILD_DIR" || {
             echo "::error::openwrt/build_dir не найден."
             exit 1
           }
-          test -d openwrt/bin || {
+          test -d "$BIN_DIR" || {
             echo "::error::openwrt/bin не найден."
             exit 1
           }
 
-          DTB=""
-          while IFS= read -r -d '' candidate; do
-            case "$candidate" in
-              *wdr4300*|*WDR4300*|*tplink*|*TP-LINK*)
-                DTB="$candidate"
-                break
-                ;;
-            esac
-          done < <(
-            find openwrt/build_dir openwrt/bin \
-              -type f \
-              \( -iname "*.dtb" -o -iname "*.dtb.o" \) \
-              -print0
-          )          
+          echo "===== SEARCH EXACT WDR4300 DTB ====="
 
-          if [ -z "$DTB" ]; then
-            echo "::error::Итоговый DTB WDR4300 не найден."
+          mapfile -d '' DTB_CANDIDATES < <(
+            find "$BUILD_DIR" "$BIN_DIR" -type f \
+              \( -iname "*wdr4300*.dtb" -o -iname "*wdr4300*.dtb.o" \) \
+              -print0
+          )
+
+          if [ "${#DTB_CANDIDATES[@]}" -eq 0 ]; then
+            echo "::error::DTB TL-WDR4300 не найден."
+            find "$BUILD_DIR" "$BIN_DIR" -type f \
+              \( -iname "*.dtb" -o -iname "*.dtb.o" \) -print | sort
             exit 1
           fi
 
-          echo "DTB: $DTB"
-          DTS=$(mktemp)
-          trap 'rm -f "$DTS"' EXIT
-          dtc -I dtb -O dts "$DTB" > "$DTS"
+          DTB=""
+          for candidate in "${DTB_CANDIDATES[@]}"; do
+            echo "Candidate: $candidate"
+
+            TEST_DTS="$(mktemp)"
+            if dtc -I dtb -O dts "$candidate" > "$TEST_DTS" 2>/dev/null; then
+              if grep -Eq \
+                'tplink,tl-wdr4300-v1|TL-WDR4300 v1|TL-WDR4300' \
+                "$TEST_DTS"; then
+                DTB="$candidate"
+                cp "$TEST_DTS" /tmp/final-wdr4300.dts
+                rm -f "$TEST_DTS"
+                break
+              fi
+            fi
+            rm -f "$TEST_DTS"
+          done
+
+          if [ -z "$DTB" ]; then
+            echo "::error::Не найден DTB с compatible/model TL-WDR4300 v1."
+            echo "Найденные DTB:"
+            printf '%s\n' "${DTB_CANDIDATES[@]}"
+            exit 1
+          fi
+
+          DTS="/tmp/final-wdr4300.dts"
+
+          echo "===== SELECTED DTB ====="
+          echo "$DTB"
+
+          echo "===== MODEL / COMPATIBLE ====="
+          grep -E 'model =|compatible =' "$DTS" | head -30 || true
+
+          grep -Eq \
+            'tplink,tl-wdr4300-v1|TL-WDR4300 v1|TL-WDR4300' \
+            "$DTS" || {
+              echo "::error::Выбранный DTB не идентифицирован как TL-WDR4300."
+              exit 1
+            }
 
           echo "===== PARTITIONS ====="
-          grep -A5 -B1 "partition@" "$DTS" || true
+          awk '
+            /partition@/ {show=1}
+            show {print}
+            show && /^[[:space:]]*};/ {show=0}
+          ' "$DTS"
 
-          # Строгая проверка firmware
+          # Exact WDR4300 16MB map.
           grep -Eq 'partition@0*20000([[:space:]]|\{|$)' "$DTS" || {
             echo "::error::Firmware partition@20000 не найден."
             exit 1
@@ -469,7 +478,6 @@ jobs:
             exit 1
           }
 
-          # Строгая проверка ART
           grep -Eq 'partition@0*ff0000([[:space:]]|\{|$)' "$DTS" || {
             echo "::error::ART partition@ff0000 не найден."
             exit 1
@@ -480,6 +488,38 @@ jobs:
             exit 1
           }
 
+          # Mathematical boundary checks.
+          FW_START=$((0x020000))
+          FW_SIZE=$((0xfd0000))
+          FW_END=$((FW_START + FW_SIZE))
+          ART_START=$((0xff0000))
+          ART_SIZE=$((0x010000))
+          ART_END=$((ART_START + ART_SIZE))
+          FLASH_SIZE=$((0x1000000))
+
+          echo "===== NUMERIC LAYOUT ====="
+          printf 'Firmware: start=0x%06x size=0x%06x end=0x%06x\n' \
+            "$FW_START" "$FW_SIZE" "$FW_END"
+          printf 'ART:      start=0x%06x size=0x%06x end=0x%06x\n' \
+            "$ART_START" "$ART_SIZE" "$ART_END"
+          printf 'Flash:    size =0x%07x (%d bytes / 16 MiB)\n' \
+            "$FLASH_SIZE" "$FLASH_SIZE"
+
+          [ "$FW_END" -eq "$ART_START" ] || {
+            echo "::error::Firmware не заканчивается на начале ART."
+            exit 1
+          }
+
+          [ "$ART_END" -eq "$FLASH_SIZE" ] || {
+            echo "::error::ART не заканчивается на конце 16MiB flash."
+            exit 1
+          }
+
+          [ "$FW_START" -eq $((0x020000)) ] || exit 1
+          [ "$FW_SIZE" -eq $((0xfd0000)) ] || exit 1
+          [ "$ART_START" -eq $((0xff0000)) ] || exit 1
+          [ "$ART_SIZE" -eq $((0x010000)) ] || exit 1
+
           echo "===== DTB LAYOUT CHECK: PASS ====="
 
       - name: Verify firmware image size
@@ -488,7 +528,6 @@ jobs:
           set -euo pipefail
 
           DIR="openwrt/bin/targets/ath79/generic"
-          # 0xfd0000 = 16,580,608 bytes = 16,192 KiB.
           LIMIT=$((0xfd0000))
 
           test -d "$DIR" || {
@@ -502,6 +541,7 @@ jobs:
             -exec ls -lh {} + || true
 
           COUNT=0
+
           while IFS= read -r IMG; do
             [ -z "$IMG" ] && continue
             COUNT=$((COUNT + 1))
@@ -509,12 +549,13 @@ jobs:
             echo "$IMG -> $SIZE bytes"
 
             if [ "$SIZE" -gt "$LIMIT" ]; then
-              echo "::error::$IMG больше 16MB firmware partition ($LIMIT bytes)"
+              echo "::error::$IMG больше firmware partition 0xfd0000 ($LIMIT bytes)."
               exit 1
             fi
           done < <(
             find "$DIR" -maxdepth 1 -type f \
-              \( -iname "*factory*.bin" -o -iname "*sysupgrade*.bin" \)
+              \( -iname "*factory*.bin" -o -iname "*sysupgrade*.bin" \) \
+              -print
           )
 
           [ "$COUNT" -gt 0 ] || {
@@ -528,9 +569,10 @@ jobs:
       - name: Verify required files and package configuration
         working-directory: openwrt
         run: |
-          set -e
+          set -euo pipefail
 
           echo "===== REQUIRED CONFIG ====="
+
           REQUIRED=(
             "CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wdr4300-v1=y"
             "CONFIG_PACKAGE_luci=y"
@@ -565,7 +607,7 @@ jobs:
           mkdir -p out
 
           find openwrt/bin/targets/ath79/generic -maxdepth 1 -type f \
-            -exec cp -t out -- {} + || true
+            -exec cp -t out -- {} +
 
           test -f openwrt/.config || {
             echo "::error::openwrt/.config не найден."
@@ -590,15 +632,23 @@ jobs:
             echo "Device: TL-WDR4300 v1"
             echo "Flash: 16 MB"
             echo "Firmware partition: 0x020000 + 0xfd0000"
+            echo "Firmware end: 0xff0000"
             echo "ART partition: 0xff0000 + 0x010000"
+            echo "Flash end: 0x1000000"
             echo "LuCI language: Russian"
-            echo "Build: v2.5"
+            echo "Build: v2.8"
+            echo
+            echo "DTB verification: strict TL-WDR4300 model/compatible"
+            echo "DTB verification: firmware partition@20000"
+            echo "DTB verification: ART partition@ff0000"
+            echo "DTB verification: numeric 16MiB boundary"
             echo
             echo "Git HEAD:"
             (cd openwrt && git rev-parse HEAD)
           } > out/BUILD_INFO.txt
 
-          find out -type f ! -name 'sha256sums.txt' -exec sha256sum {} + > out/sha256sums.txt
+          find out -type f ! -name 'sha256sums.txt' \
+            -exec sha256sum {} + > out/sha256sums.txt
 
           echo "===== OUTPUT ====="
           ls -lah out
@@ -606,6 +656,6 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.7.usb-${{ github.run_number }}
+          name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.7_usb-${{ github.run_number }}
           path: out/
           retention-days: 30
