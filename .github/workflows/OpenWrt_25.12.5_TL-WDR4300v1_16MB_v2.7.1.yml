@@ -1,4 +1,4 @@
-name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.7_usb
+name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.7.1
 
 on:
   workflow_dispatch:
@@ -7,10 +7,10 @@ on:
         description: "Подтверждение: физический роутер TL-WDR4300 v1"
         required: true
         default: "TL-WDR4300 v1"
-      include_python:
-        description: "Добавить Python3/PIP (увеличивает размер образа)"
+      include_tshark:
+        description: "Добавить TShark (очень сильно увеличивает образ)"
         required: true
-        default: "true"
+        default: "false"
 
 jobs:
   build:
@@ -45,9 +45,14 @@ jobs:
           set -euo pipefail
           git clone --branch v25.12.5 --depth 1 https://github.com/openwrt/openwrt.git
           cd openwrt
-          echo "HEAD:     $(git rev-parse HEAD)"
+          HEAD="$(git rev-parse HEAD)"
+          echo "HEAD:     $HEAD"
           echo "Describe: $(git describe --always --tags)"
           echo "Log:      $(git log -1 --oneline)"
+          case "$HEAD" in
+            f0a60ee*) ;;
+            *) echo "::error::Получен не OpenWrt v25.12.5 commit f0a60ee."; exit 1 ;;
+          esac
 
       - name: Locate exact WDR4300 DTS and image definitions
         run: |
@@ -82,6 +87,12 @@ jobs:
           echo "===== BEFORE ====="
           sed -n '/define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' "$FILE"
 
+          PROFILE_BEFORE="$(sed -n '/^define Device\/tplink_tl-wdr4300-v1$/,/^endef$/p' "$FILE")"
+          printf '%s\n' "$PROFILE_BEFORE" | grep -Fq '$(Device/tplink-8mlzma)' || {
+            echo "::error::Upstream v25.12.5 WDR4300 profile не соответствует ожидаемому tplink-8mlzma; patch остановлен."
+            exit 1
+          }
+
           sed -i \
             '/define Device\/tplink_tl-wdr4300-v1$/,/^endef$/ s/\$(Device\/tplink-8mlzma)/\$(Device\/tplink-16mlzma)/' \
             "$FILE"
@@ -102,6 +113,15 @@ jobs:
 
           DTS_DIR="openwrt/target/linux/ath79/dts"
           FILE=""
+
+          test -f "$DTS_DIR/ar9344_tplink_tl-wdr4300-v1.dts" || {
+            echo "::error::В v25.12.5 отсутствует ожидаемый ar9344_tplink_tl-wdr4300-v1.dts."
+            exit 1
+          }
+          test -f "$DTS_DIR/ar9344_tplink_tl-wdr4300.dtsi" || {
+            echo "::error::В v25.12.5 отсутствует ожидаемый ar9344_tplink_tl-wdr4300.dtsi."
+            exit 1
+          }
 
           # ВАЖНО:
           # Ищем старую разметку только в DTS/DTSI, относящихся к WDR4300/WDRxxxx.
@@ -230,12 +250,13 @@ jobs:
 
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_uhttpd=y
-          CONFIG_PACKAGE_luci-ssl=y
+          CONFIG_PACKAGE_luci-ssl-openssl=y
           CONFIG_PACKAGE_luci-i18n-base-ru=y
-          CONFIG_PACKAGE_luci-i18n-opkg-ru=y
+          CONFIG_PACKAGE_luci-app-package-manager=y
+          CONFIG_PACKAGE_luci-app-firewall=y
+          CONFIG_PACKAGE_luci-i18n-package-manager-ru=y
           CONFIG_PACKAGE_luci-i18n-firewall-ru=y
           CONFIG_PACKAGE_luci-theme-bootstrap=y
-          CONFIG_PACKAGE_luci-theme-material=y
           CONFIG_PACKAGE_zoneinfo-asia=y
           CONFIG_PACKAGE_libustream-openssl=y
 
@@ -257,8 +278,6 @@ jobs:
           CONFIG_PACKAGE_mount-utils=y
 
           CONFIG_PACKAGE_tcpdump=y
-          CONFIG_PACKAGE_tcpdump-mini=y
-          CONFIG_PACKAGE_tshark=y
           CONFIG_PACKAGE_libpcap=y
           CONFIG_PACKAGE_bind-tools=y
           CONFIG_PACKAGE_drill=y
@@ -272,8 +291,6 @@ jobs:
           CONFIG_PACKAGE_conntrack=y
           CONFIG_PACKAGE_kmod-nf-conntrack=y
           CONFIG_PACKAGE_kmod-nf-conntrack-netlink=y
-          CONFIG_PACKAGE_iptables=y
-          CONFIG_PACKAGE_iptables-mod-conntrack=y
           CONFIG_PACKAGE_mtr=y
           CONFIG_PACKAGE_iperf3=y
           CONFIG_PACKAGE_ethtool=y
@@ -289,8 +306,6 @@ jobs:
           CONFIG_PACKAGE_wireguard-tools=y
           CONFIG_PACKAGE_luci-proto-wireguard=y
           CONFIG_PACKAGE_kmod-wireguard=y
-          CONFIG_WIREGUARD=y
-          CONFIG_TUN=y
 
           CONFIG_PACKAGE_iwinfo=y
           CONFIG_PACKAGE_iw=y
@@ -313,7 +328,6 @@ jobs:
           CONFIG_PACKAGE_openssh-client=y
           CONFIG_PACKAGE_openssh-sftp-client=y
           CONFIG_PACKAGE_rsync=y
-          CONFIG_PACKAGE_sftp-server=y
           CONFIG_PACKAGE_smartmontools=y
 
           CONFIG_NETLINK_DIAG=y
@@ -322,16 +336,12 @@ jobs:
           CONFIG_INET_UDP_DIAG=y
           EOF
 
-          if [ "${{ github.event.inputs.include_python }}" = "true" ]; then
-            cat >> .config <<'EOF'
-          CONFIG_PACKAGE_python3=y
-          CONFIG_PACKAGE_python3-pip=y
-          CONFIG_PACKAGE_python3-asyncio=y
-          CONFIG_PACKAGE_python3-json=y
-          EOF
+          if [ "${{ github.event.inputs.include_tshark }}" = "true" ]; then
+            echo 'CONFIG_PACKAGE_tshark=y' >> .config
           fi
 
           make defconfig
+          make prereq
 
           echo "===== TARGET ====="
           grep -E '^CONFIG_TARGET_.*(BOARD|SUBTARGET|PROFILE|DEVICE_)' .config || true
@@ -522,6 +532,20 @@ jobs:
 
           echo "===== DTB LAYOUT CHECK: PASS ====="
 
+      - name: Verify final package manifest and image metadata
+        working-directory: openwrt
+        run: |
+          set -euo pipefail
+          TARGET_DIR="bin/targets/ath79/generic"
+          test -d "$TARGET_DIR"
+          test -f "$TARGET_DIR/sha256sums"
+          grep -q 'tplink_tl-wdr4300-v1' "$TARGET_DIR/sha256sums" || {
+            echo "::error::sha256sums не содержит TL-WDR4300 v1 image."
+            exit 1
+          }
+          echo "===== TARGET MANIFEST ====="
+          grep 'tplink_tl-wdr4300-v1' "$TARGET_DIR/sha256sums"
+
       - name: Verify firmware image size
         shell: bash
         run: |
@@ -529,6 +553,7 @@ jobs:
 
           DIR="openwrt/bin/targets/ath79/generic"
           LIMIT=$((0xfd0000))
+          MAX_IMAGE_SIZE=$((0xf80000))
 
           test -d "$DIR" || {
             echo "::error::Каталог firmware не найден: $DIR"
@@ -552,6 +577,9 @@ jobs:
               echo "::error::$IMG больше firmware partition 0xfd0000 ($LIMIT bytes)."
               exit 1
             fi
+            if [ "$SIZE" -gt "$MAX_IMAGE_SIZE" ]; then
+              echo "::warning::$IMG больше штатного IMAGE_SIZE tplink-16mlzma (0xf80000)."
+            fi
           done < <(
             find "$DIR" -maxdepth 1 -type f \
               \( -iname "*factory*.bin" -o -iname "*sysupgrade*.bin" \) \
@@ -562,6 +590,14 @@ jobs:
             echo "::error::Factory/sysupgrade BIN не найден."
             exit 1
           }
+
+          while IFS= read -r IMG; do
+            case "$(basename "$IMG")" in
+              *tplink_tl-wdr4300-v1*-squashfs-*.bin) ;;
+              *) echo "::error::Образ не соответствует TL-WDR4300 v1: $IMG"; exit 1 ;;
+            esac
+          done < <(find "$DIR" -maxdepth 1 -type f \
+              \( -iname "*factory*.bin" -o -iname "*sysupgrade*.bin" \) -print)
 
           echo "Verified firmware partition limit: ${LIMIT} bytes (0xfd0000)."
           echo "===== IMAGE SIZE CHECK: PASS ====="
@@ -578,12 +614,13 @@ jobs:
             "CONFIG_PACKAGE_luci=y"
             "CONFIG_PACKAGE_luci-i18n-base-ru=y"
             "CONFIG_PACKAGE_luci-i18n-firewall-ru=y"
+            "CONFIG_PACKAGE_luci-app-package-manager=y"
+            "CONFIG_PACKAGE_luci-i18n-package-manager-ru=y"
             "CONFIG_PACKAGE_openvpn-openssl=y"
             "CONFIG_PACKAGE_kmod-tun=y"
             "CONFIG_PACKAGE_wireguard-tools=y"
             "CONFIG_PACKAGE_kmod-wireguard=y"
             "CONFIG_PACKAGE_tcpdump=y"
-            "CONFIG_PACKAGE_tshark=y"
             "CONFIG_PACKAGE_kmod-usb-storage=y"
             "CONFIG_PACKAGE_kmod-fs-ext4=y"
             "CONFIG_PACKAGE_block-mount=y"
@@ -595,6 +632,18 @@ jobs:
               exit 1
             }
           done
+
+          if [ "${{ github.event.inputs.include_tshark }}" = "true" ]; then
+            grep -qx 'CONFIG_PACKAGE_tshark=y' .config || { echo "::error::TShark не выбран после defconfig."; exit 1; }
+          fi
+
+          echo "===== PYTHON EXCLUSION CHECK ====="
+          if grep -Eq '^CONFIG_PACKAGE_python3(=y|$)|^CONFIG_PACKAGE_python3-pip(=y|$)|^CONFIG_PACKAGE_python3-asyncio(=y|$)|^CONFIG_PACKAGE_python3-json(=y|$)' .config; then
+            echo "::error::Python3/python3-pip/python3-asyncio/python3-json обнаружены в firmware .config."
+            grep -E '^CONFIG_PACKAGE_python3(=y|$)|^CONFIG_PACKAGE_python3-pip(=y|$)|^CONFIG_PACKAGE_python3-asyncio(=y|$)|^CONFIG_PACKAGE_python3-json(=y|$)' .config || true
+            exit 1
+          fi
+          echo "Python packages excluded from firmware: PASS"
 
           echo "===== REQUIRED CONFIG CHECK: PASS ====="
 
@@ -636,7 +685,7 @@ jobs:
             echo "ART partition: 0xff0000 + 0x010000"
             echo "Flash end: 0x1000000"
             echo "LuCI language: Russian"
-            echo "Build: v2.8"
+            echo "Build: v2.7.1"
             echo
             echo "DTB verification: strict TL-WDR4300 model/compatible"
             echo "DTB verification: firmware partition@20000"
@@ -656,6 +705,6 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.7_usb-${{ github.run_number }}
+          name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.7.1-${{ github.run_number }}
           path: out/
           retention-days: 30
