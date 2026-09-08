@@ -716,4 +716,3 @@ jobs:
           name: name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.7.9-${{ github.run_number }}
           path: out/
           retention-days: 30
-
