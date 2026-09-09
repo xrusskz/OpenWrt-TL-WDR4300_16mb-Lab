@@ -1,4 +1,4 @@
-name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.7.2-Betta1
+name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.7.3
 
 on:
   workflow_dispatch:
@@ -754,6 +754,6 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.7.2-Betta1-${{ github.run_number }}
+          name: OpenWrt_25.12.5_TL-WDR4300v1_16MB_v2.7.3-${{ github.run_number }}
           path: out/
           retention-days: 30
