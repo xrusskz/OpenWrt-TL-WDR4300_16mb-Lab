@@ -225,119 +225,52 @@ jobs:
           # ==========================================================
           # LUCI WEB INTERFACE
           # ==========================================================
-          echo "CONFIG_PACKAGE_luci=y" >> .config
-          echo "CONFIG_PACKAGE_uhttpd=y" >> .config
-          echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-base-ru=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-package-manager-ru=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-firewall-ru=y" >> .config
-          echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
 
           # Русская локаль/локализация CLI
-          echo "CONFIG_PACKAGE_zoneinfo-asia=y" >> .config
-          echo "CONFIG_PACKAGE_libustream-openssl=y" >> .config          
           # ==========================================================
           # USB STORAGE
           # ==========================================================
-          echo "CONFIG_PACKAGE_kmod-usb-storage=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-scsi-core=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-scsi-generic=y" >> .config
-          echo "CONFIG_PACKAGE_usbutils=y" >> .config
           # ==========================================================
           # FILESYSTEMS
           # EXT4 / FAT32
           # ==========================================================
-          echo "CONFIG_PACKAGE_kmod-fs-ext4=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-fs-vfat=y" >> .config
-          echo "CONFIG_PACKAGE_dosfstools=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-fs-exfat=y" >> .config
-          echo "CONFIG_PACKAGE_exfatprogs=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-fs-ntfs3=y" >> .config
-          echo "CONFIG_PACKAGE_ntfs3-mount=y" >> .config
           # ==========================================================
           # EXTROOT / BLOCK MANAGEMENT
           # ==========================================================
-          echo "CONFIG_PACKAGE_block-mount=y" >> .config
-          echo "CONFIG_PACKAGE_blockd=y" >> .config
-          echo "CONFIG_PACKAGE_e2fsprogs=y" >> .config
-          echo "CONFIG_PACKAGE_e2fsprogs-fsck=y" >> .config
-          echo "CONFIG_PACKAGE_mount-utils=y" >> .config
           # ==========================================================
           # DREAME TRAFFIC ANALYSIS
           # ==========================================================
-          echo "CONFIG_PACKAGE_tcpdump=y" >> .config
-          echo "CONFIG_PACKAGE_bind-tools=y" >> .config
-          echo "CONFIG_PACKAGE_drill=y" >> .config
-          echo "CONFIG_PACKAGE_nmap-ssl=y" >> .config
-          echo "CONFIG_PACKAGE_ca-certificates=y" >> .config
-          echo "CONFIG_PACKAGE_openssl-util=y" >> .config
           # ==========================================================
           # CONNECTION TRACKING / FIREWALL
           # ==========================================================
-          echo "CONFIG_PACKAGE_kmod-nf-conntrack=y" >> .config
-          echo "CONFIG_PACKAGE_conntrack=y" >> .config
-          echo "CONFIG_PACKAGE_iptables=y" >> .config
           # ==========================================================
           # NETWORK TOOLS
           # ==========================================================
-           echo "CONFIG_PACKAGE_ip-full=y" >> .config
-           echo "CONFIG_PACKAGE_iproute2=y" >> .config
-           echo "CONFIG_PACKAGE_kmod-netlink-diag=y" >> .config
-           echo "CONFIG_PACKAGE_kmod-nf-conntrack-netlink=y" >> .config
-           echo "CONFIG_PACKAGE_iptables-mod-conntrack=y" >> .config
-          echo "CONFIG_PACKAGE_mtr=y" >> .config
-          echo "CONFIG_PACKAGE_iperf3=y" >> .config
-          echo "CONFIG_PACKAGE_ethtool=y" >> .config
-          echo "CONFIG_PACKAGE_curl=y" >> .config
-          echo "CONFIG_PACKAGE_wget-ssl=y" >> .config
-          echo "CONFIG_PACKAGE_jq=y" >> .config
           # ==========================================================
           # VPN
           # OpenVPN + WireGuard
           # ==========================================================
            echo "CONFIG_PACKAGE_openvpn-openssl=y" >> .config
            echo "CONFIG_PACKAGE_kmod-ovpn-backports=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-openvpn=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-openvpn-ru=y" >> .config
           echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
-          echo "CONFIG_PACKAGE_wireguard-tools=y" >> .config
-          echo "CONFIG_PACKAGE_luci-proto-wireguard=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-wireguard=y" >> .config
           # ==========================================================
           # WIFI DIAGNOSTICS
           # ==========================================================
-          echo "CONFIG_PACKAGE_iwinfo=y" >> .config
-          echo "CONFIG_PACKAGE_iw=y" >> .config
           # ==========================================================
           # SYSTEM DIAGNOSTICS
           # ==========================================================
-          echo "CONFIG_PACKAGE_htop=y" >> .config
-          echo "CONFIG_PACKAGE_procps-ng=y" >> .config
-          echo "CONFIG_PACKAGE_lsof=y" >> .config
-          echo "CONFIG_PACKAGE_file=y" >> .config
-          echo "CONFIG_PACKAGE_findutils=y" >> .config
-          echo "CONFIG_PACKAGE_coreutils=y" >> .config
-          echo "CONFIG_PACKAGE_coreutils-timeout=y" >> .config
           # ==========================================================
           # EDITORS / TERMINAL
           # ==========================================================
-          echo "CONFIG_PACKAGE_nano=y" >> .config
-          echo "CONFIG_PACKAGE_tmux=y" >> .config
           # ==========================================================
           # LOGGING
           # ==========================================================
-          echo "CONFIG_PACKAGE_logrotate=y" >> .config
           # ==========================================================
           # SSH / FILE TRANSFER
           # ==========================================================
-          echo "CONFIG_PACKAGE_dropbear=y" >> .config
-          echo "CONFIG_PACKAGE_openssh-sftp-client=y" >> .config
-          echo "CONFIG_PACKAGE_rsync=y" >> .config
-          echo "CONFIG_PACKAGE_openssh-sftp-server=y" >> .config
           # ==========================================================
           # DISK MONITORING
           # ==========================================================
-          echo "CONFIG_PACKAGE_smartmontools=y" >> .config
           # Kernel diagnostics
           # ==========================================================
           # GENERATE FINAL CONFIG
@@ -352,22 +285,12 @@ jobs:
           grep "^CONFIG_TARGET_ath79_generic_DEVICE_" .config || true
           echo
           echo "========== CORE PACKAGES =========="
-          grep "^CONFIG_PACKAGE_luci=y" .config || true
-          grep "^CONFIG_PACKAGE_luci.*-ru=y" .config || true          
-          grep "^CONFIG_PACKAGE_uhttpd=y" .config || true
-           grep "^CONFIG_PACKAGE_openvpn-openssl=y" .config || true
-           grep "^CONFIG_PACKAGE_kmod-ovpn-backports=y" .config || true
-          grep "^CONFIG_PACKAGE_wireguard-tools=y" .config || true
-          grep "^CONFIG_PACKAGE_jq=y" .config || true
-          grep "^CONFIG_PACKAGE_kmod-tun=y" .config || true
+           grep "^CONFIG_PACKAGE_openvpn-openssl=y" .config
+           grep "^CONFIG_PACKAGE_kmod-ovpn-backports=y" .config
+           grep "^CONFIG_PACKAGE_kmod-tun=y" .config
           echo
           echo "========== STORAGE =========="
-          grep "^CONFIG_PACKAGE_kmod-usb-storage=y" .config || true
-          grep "^CONFIG_PACKAGE_kmod-fs-ext4=y" .config || true
-          grep "^CONFIG_PACKAGE_kmod-fs-vfat=y" .config || true
-          grep "^CONFIG_PACKAGE_kmod-fs-exfat=y" .config || true
-          grep "^CONFIG_PACKAGE_kmod-fs-ntfs3=y" .config || true
-          grep "^CONFIG_PACKAGE_block-mount=y" .config || true          
+           echo "Optional storage packages are excluded; install later if needed."
           echo
           echo "========== BUILD OPTIONS =========="
           grep "^CONFIG_CCACHE=y" .config || true
