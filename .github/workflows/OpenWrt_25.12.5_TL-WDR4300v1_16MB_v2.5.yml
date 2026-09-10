@@ -7,10 +7,6 @@ on:
         description: 'Подтверждение: физический роутер TL-WDR4300 v1'
         required: true
         default: 'TL-WDR4300 v1'
-      include_python:
-        description: 'Добавить Python3/PIP (увеличивает размер образа)'
-        required: true
-        default: 'true'
 
 jobs:
   build:
@@ -154,11 +150,11 @@ jobs:
           grep -n "IMAGE_SIZE" "$MKFILE" || true
 
           sed -i -E \
-            's/(IMAGE_SIZE[[:space:]]*:?=[[:space:]]*)[0-9]+k/\1 16128k/' \
+             's/(IMAGE_SIZE[[:space:]]*:?=[[:space:]]*)[0-9]+k/\1 16192k/' \
             "$MKFILE"
 
-          grep -q "16128k" "$MKFILE" || {
-            echo "::error::IMAGE_SIZE != 16128k"
+           grep -q "16192k" "$MKFILE" || {
+             echo "::error::IMAGE_SIZE != 16192k"
             exit 1
           }
 
@@ -198,157 +194,20 @@ jobs:
           echo "CONFIG_DEVEL=y" >> .config
           echo "CONFIG_CCACHE=y" >> .config
 
-          # ==========================================================
-          # РУССКИЙ ЯЗЫК / LUCi
-          # ==========================================================
-          echo "CONFIG_PACKAGE_luci=y" >> .config
-          echo "CONFIG_PACKAGE_uhttpd=y" >> .config
-          echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-base-ru=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-opkg-ru=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-firewall-ru=y" >> .config
-          echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
-          echo "CONFIG_PACKAGE_luci-theme-material=y" >> .config
-
-          # Русская локаль/локализация CLI
-          echo "CONFIG_PACKAGE_zoneinfo-asia=y" >> .config
-          echo "CONFIG_PACKAGE_libustream-openssl=y" >> .config
-
-          # ==========================================================
-          # USB / STORAGE
-          # ==========================================================
-          echo "CONFIG_PACKAGE_kmod-usb-storage=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-scsi-core=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-scsi-generic=y" >> .config
-          echo "CONFIG_PACKAGE_usbutils=y" >> .config
-
-          # Filesystems
-          echo "CONFIG_PACKAGE_kmod-fs-ext4=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-fs-vfat=y" >> .config
-          echo "CONFIG_PACKAGE_dosfstools=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-fs-exfat=y" >> .config
-          echo "CONFIG_PACKAGE_exfatprogs=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-fs-ntfs3=y" >> .config
-          echo "CONFIG_PACKAGE_ntfs3-mount=y" >> .config
-
-          # extroot/block
-          echo "CONFIG_PACKAGE_block-mount=y" >> .config
-          echo "CONFIG_PACKAGE_blockd=y" >> .config
-          echo "CONFIG_PACKAGE_e2fsprogs=y" >> .config
-          echo "CONFIG_PACKAGE_e2fsprogs-fsck=y" >> .config
-          echo "CONFIG_PACKAGE_mount-utils=y" >> .config
-
-          # ==========================================================
-          # DREAME / PCAP / NETWORK ANALYSIS
-          # ==========================================================
-          echo "CONFIG_PACKAGE_tcpdump=y" >> .config
-          echo "CONFIG_PACKAGE_tcpdump-mini=y" >> .config
-          echo "CONFIG_PACKAGE_tshark=y" >> .config
-          echo "CONFIG_PACKAGE_libpcap=y" >> .config
-          echo "CONFIG_PACKAGE_bind-tools=y" >> .config
-          echo "CONFIG_PACKAGE_drill=y" >> .config
-          echo "CONFIG_PACKAGE_nmap-ssl=y" >> .config
-          echo "CONFIG_PACKAGE_ca-certificates=y" >> .config
-          echo "CONFIG_PACKAGE_openssl-util=y" >> .config
-
-          # ==========================================================
-          # NETWORK
-          # ==========================================================
-          echo "CONFIG_PACKAGE_ip-full=y" >> .config
-          echo "CONFIG_PACKAGE_iproute2=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-netlink-diag=y" >> .config
-          echo "CONFIG_PACKAGE_conntrack=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-nf-conntrack=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-nf-conntrack-netlink=y" >> .config
-          echo "CONFIG_PACKAGE_iptables=y" >> .config
-          echo "CONFIG_PACKAGE_iptables-mod-conntrack=y" >> .config
-          echo "CONFIG_PACKAGE_mtr=y" >> .config
-          echo "CONFIG_PACKAGE_iperf3=y" >> .config
-          echo "CONFIG_PACKAGE_ethtool=y" >> .config
-          echo "CONFIG_PACKAGE_curl=y" >> .config
-          echo "CONFIG_PACKAGE_wget-ssl=y" >> .config
-          echo "CONFIG_PACKAGE_jq=y" >> .config
-
-          # ==========================================================
-          # VPN
-          # ==========================================================
-          echo "CONFIG_PACKAGE_openvpn-openssl=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-openvpn=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-openvpn-ru=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
-
-          echo "CONFIG_PACKAGE_wireguard-tools=y" >> .config
-          echo "CONFIG_PACKAGE_luci-proto-wireguard=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-wireguard=y" >> .config
-          echo "CONFIG_WIREGUARD=y" >> .config
-          echo "CONFIG_TUN=y" >> .config
-
-          # ==========================================================
-          # WIFI DIAGNOSTICS
-          # ==========================================================
-          echo "CONFIG_PACKAGE_iwinfo=y" >> .config
-          echo "CONFIG_PACKAGE_iw=y" >> .config
-          echo "CONFIG_PACKAGE_wireless-tools=y" >> .config
-
-          # ==========================================================
-          # SYSTEM DIAGNOSTICS
-          # ==========================================================
-          echo "CONFIG_PACKAGE_htop=y" >> .config
-          echo "CONFIG_PACKAGE_procps-ng=y" >> .config
-          echo "CONFIG_PACKAGE_lsof=y" >> .config
-          echo "CONFIG_PACKAGE_file=y" >> .config
-          echo "CONFIG_PACKAGE_findutils=y" >> .config
-          echo "CONFIG_PACKAGE_coreutils=y" >> .config
-          echo "CONFIG_PACKAGE_coreutils-timeout=y" >> .config
-
-          # Editors / terminal
-          echo "CONFIG_PACKAGE_nano=y" >> .config
-          echo "CONFIG_PACKAGE_vim-full=y" >> .config
-          echo "CONFIG_PACKAGE_screen=y" >> .config
-          echo "CONFIG_PACKAGE_tmux=y" >> .config
-
-          # Logging
-          echo "CONFIG_PACKAGE_logrotate=y" >> .config
-
-          # ==========================================================
-          # SSH / FILE TRANSFER
-          # ==========================================================
-          echo "CONFIG_PACKAGE_dropbear=y" >> .config
-          echo "CONFIG_PACKAGE_openssh-client=y" >> .config
-          echo "CONFIG_PACKAGE_openssh-sftp-client=y" >> .config
-          echo "CONFIG_PACKAGE_rsync=y" >> .config
-          echo "CONFIG_PACKAGE_sftp-server=y" >> .config
-
-          # Disk monitoring
-          echo "CONFIG_PACKAGE_smartmontools=y" >> .config
-
-          # Kernel diagnostics
-          echo "CONFIG_NETLINK_DIAG=y" >> .config
-          echo "CONFIG_INET_DIAG=y" >> .config
-          echo "CONFIG_INET_TCP_DIAG=y" >> .config
-          echo "CONFIG_INET_UDP_DIAG=y" >> .config
-
-          # Optional Python
-          if [ "${{ github.event.inputs.include_python }}" = "true" ]; then
-            echo "CONFIG_PACKAGE_python3=y" >> .config
-            echo "CONFIG_PACKAGE_python3-pip=y" >> .config
-            echo "CONFIG_PACKAGE_python3-asyncio=y" >> .config
-            echo "CONFIG_PACKAGE_python3-json=y" >> .config
-          fi
+           # ==========================================================
+           # OpenVPN DCO only
+           # ==========================================================
+           echo "CONFIG_PACKAGE_openvpn-openssl=y" >> .config
+           echo "CONFIG_PACKAGE_kmod-ovpn-backports=y" >> .config
+           echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
 
           make defconfig
 
           echo "===== TARGET ====="
           grep "^CONFIG_TARGET_" .config | grep -E "BOARD|SUBTARGET|PROFILE|DEVICE_" || true
 
-          echo "===== RUSSIAN LUCi ====="
-          grep "^CONFIG_PACKAGE_luci.*-ru=y" .config || true
-
-          echo "===== VPN ====="
-          grep -E "^CONFIG_PACKAGE_(openvpn-openssl|kmod-tun|wireguard-tools|kmod-wireguard|luci-proto-wireguard)=y" .config || true
-
-          echo "===== STORAGE ====="
-          grep -E "^CONFIG_PACKAGE_(kmod-usb-storage|kmod-fs-ext4|kmod-fs-vfat|kmod-fs-exfat|kmod-fs-ntfs3|block-mount)=y" .config || true
+           echo "===== VPN ====="
+           grep -E "^CONFIG_PACKAGE_(openvpn-openssl|kmod-ovpn-backports|kmod-tun)=y" .config
 
           grep -q "^CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wdr4300-v1=y$" .config || {
             echo "::error::После defconfig выбран не TL-WDR4300 v1"
@@ -489,18 +348,9 @@ jobs:
           echo "===== REQUIRED CONFIG ====="
           REQUIRED=(
             "CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wdr4300-v1=y"
-            "CONFIG_PACKAGE_luci=y"
-            "CONFIG_PACKAGE_luci-i18n-base-ru=y"
-            "CONFIG_PACKAGE_luci-i18n-firewall-ru=y"
-            "CONFIG_PACKAGE_openvpn-openssl=y"
-            "CONFIG_PACKAGE_kmod-tun=y"
-            "CONFIG_PACKAGE_wireguard-tools=y"
-            "CONFIG_PACKAGE_kmod-wireguard=y"
-            "CONFIG_PACKAGE_tcpdump=y"
-            "CONFIG_PACKAGE_tshark=y"
-            "CONFIG_PACKAGE_kmod-usb-storage=y"
-            "CONFIG_PACKAGE_kmod-fs-ext4=y"
-            "CONFIG_PACKAGE_block-mount=y"
+             "CONFIG_PACKAGE_openvpn-openssl=y"
+             "CONFIG_PACKAGE_kmod-ovpn-backports=y"
+             "CONFIG_PACKAGE_kmod-tun=y"
           )
 
           for item in "${REQUIRED[@]}"; do

@@ -211,82 +211,12 @@ jobs:
           echo "CONFIG_DEVEL=y" >> .config
           echo "CONFIG_CCACHE=y" >> .config
 
-          # ==========================================================
-          # LUCI WEB INTERFACE
-          # ==========================================================
-          echo "CONFIG_PACKAGE_luci=y" >> .config
-          echo "CONFIG_PACKAGE_uhttpd=y" >> .config
-          echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-base-ru=y" >> .config
-          echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
-
-          # ==========================================================
-          # USB STORAGE
-          # ==========================================================
-          echo "CONFIG_PACKAGE_kmod-usb-storage=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-scsi-core=y" >> .config
-          echo "CONFIG_PACKAGE_usbutils=y" >> .config
-
-          # ==========================================================
-          # FILESYSTEMS
-          # ==========================================================
-          echo "CONFIG_PACKAGE_kmod-fs-ext4=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-fs-vfat=y" >> .config
-          echo "CONFIG_PACKAGE_dosfstools=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-fs-exfat=y" >> .config
-          echo "CONFIG_PACKAGE_exfatprogs=y" >> .config
-
-          # ==========================================================
-          # EXTROOT / BLOCK MANAGEMENT
-          # ==========================================================
-          echo "CONFIG_PACKAGE_block-mount=y" >> .config
-          echo "CONFIG_PACKAGE_blockd=y" >> .config
-          echo "CONFIG_PACKAGE_e2fsprogs=y" >> .config
-
-          # ==========================================================
-          # NETWORK ANALYSIS
-          # ==========================================================
-          echo "CONFIG_PACKAGE_tcpdump=y" >> .config
-          echo "CONFIG_PACKAGE_tshark=y" >> .config
-          echo "CONFIG_PACKAGE_libpcap=y" >> .config
-          echo "CONFIG_PACKAGE_bind-tools=y" >> .config
-
-          # ==========================================================
-          # NETWORK TOOLS
-          # ==========================================================
-          echo "CONFIG_PACKAGE_ip-full=y" >> .config
-          echo "CONFIG_PACKAGE_iproute2=y" >> .config
-          echo "CONFIG_PACKAGE_mtr=y" >> .config
-          echo "CONFIG_PACKAGE_iperf3=y" >> .config
-          echo "CONFIG_PACKAGE_curl=y" >> .config
-          echo "CONFIG_PACKAGE_wget-ssl=y" >> .config
-
-          # ==========================================================
-          # VPN (OpenVPN + WireGuard)
-          # ==========================================================
-          echo "CONFIG_PACKAGE_openvpn-openssl=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
-          echo "CONFIG_PACKAGE_wireguard-tools=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-wireguard=y" >> .config
-
-          # ==========================================================
-          # SYSTEM DIAGNOSTICS
-          # ==========================================================
-          echo "CONFIG_PACKAGE_htop=y" >> .config
-          echo "CONFIG_PACKAGE_procps-ng=y" >> .config
-          echo "CONFIG_PACKAGE_lsof=y" >> .config
-
-          # ==========================================================
-          # EDITORS / TERMINAL
-          # ==========================================================
-          echo "CONFIG_PACKAGE_nano=y" >> .config
-          echo "CONFIG_PACKAGE_vim-full=y" >> .config
-
-          # ==========================================================
-          # SSH / FILE TRANSFER
-          # ==========================================================
-          echo "CONFIG_PACKAGE_openssh-client=y" >> .config
-          echo "CONFIG_PACKAGE_rsync=y" >> .config
+           # ==========================================================
+           # OpenVPN DCO only
+           # ==========================================================
+           echo "CONFIG_PACKAGE_openvpn-openssl=y" >> .config
+           echo "CONFIG_PACKAGE_kmod-ovpn-backports=y" >> .config
+           echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
 
           # ==========================================================
           # GENERATE FINAL CONFIG
@@ -299,13 +229,9 @@ jobs:
           grep "^CONFIG_TARGET_ath79_generic_DEVICE_" .config || true
           echo
           echo "========== CORE PACKAGES =========="
-          grep "^CONFIG_PACKAGE_openvpn-openssl=y$" .config || true
-          grep "^CONFIG_PACKAGE_kmod-tun=y$" .config || true
-          grep "^CONFIG_PACKAGE_wireguard-tools=y$" .config || true
-          echo
-          echo "========== STORAGE =========="
-          grep "^CONFIG_PACKAGE_kmod-usb-storage=y$" .config || true
-          grep "^CONFIG_PACKAGE_block-mount=y$" .config || true
+           grep "^CONFIG_PACKAGE_openvpn-openssl=y$" .config
+           grep "^CONFIG_PACKAGE_kmod-ovpn-backports=y$" .config
+           grep "^CONFIG_PACKAGE_kmod-tun=y$" .config
           echo
           echo "========== BUILD OPTIONS =========="
           grep "^CONFIG_CCACHE=y$" .config || true
@@ -334,16 +260,17 @@ jobs:
         working-directory: openwrt
         run: |
           set -euo pipefail
-          grep -q "^CONFIG_PACKAGE_openvpn-openssl=y$" .config || {
+           grep -q "^CONFIG_PACKAGE_openvpn-openssl=y$" .config || {
             echo "::error::openvpn-openssl not configured"
             exit 1
-          }
-          grep -q "^CONFIG_PACKAGE_kmod-tun=y$" .config || {
+           }
+           grep -q "^CONFIG_PACKAGE_kmod-ovpn-backports=y$" .config || {
+             echo "::error::kmod-ovpn-backports not configured"
+             exit 1
+           }
+           grep -q "^CONFIG_PACKAGE_kmod-tun=y$" .config || {
             echo "::error::kmod-tun not configured"
             exit 1
-          }
-          grep -q "^CONFIG_PACKAGE_wireguard-tools=y$" .config || {
-            echo "::warning::wireguard-tools not configured"
           }
 
       #####################################################################
