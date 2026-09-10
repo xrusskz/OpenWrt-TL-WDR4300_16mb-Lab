@@ -248,9 +248,9 @@ jobs:
 
 
 
-           CONFIG_PACKAGE_openvpn-openssl=y
-           CONFIG_PACKAGE_kmod-ovpn-backports=y
-           CONFIG_PACKAGE_kmod-tun=y
+          CONFIG_PACKAGE_openvpn-openssl=y
+          CONFIG_PACKAGE_kmod-ovpn-backports=y
+          CONFIG_PACKAGE_kmod-tun=y
 
 
           EOF
