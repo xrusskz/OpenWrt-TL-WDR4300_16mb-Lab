@@ -416,7 +416,7 @@ jobs:
             echo "Flash layout: 0x020000 + 0xfd0000 (firmware), 0xff0000 + 0x10000 (ART)"
             echo
             echo "Packages:"
-            grep "^CONFIG_PACKAGE_.*=y$" /home/runner/work/openwrt/openwrt/.config | wc -l
+            grep "^CONFIG_PACKAGE_.*=y$" openwrt/.config | wc -l
             echo "lines in config"
           } > out/BUILD_INFO.txt
           find out -type f -exec sha256sum {} + > out/sha256sums.txt
